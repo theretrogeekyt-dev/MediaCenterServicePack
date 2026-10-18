@@ -7,7 +7,7 @@
 
 **MediaCenterServicePack** is an open-source, fully self-contained Dockerized backend designed to restore Electronic Program Guide (EPG) TV listings, movie library metadata, and music album artwork to Windows Media Center (WMC).
 
-Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online cloud services, MediaCenterServicePack runs on-premises as a headless appliance. It ingests modern upstream data feeds (XMLTV, Schedules Direct, TMDb, MusicBrainz) and compiles schema-compliant payloads natively ingested by legacy WMC binaries (`loadmxf.exe` and `ehshell.exe`).
+Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online cloud services, MediaCenterServicePack runs on-premises as a headless appliance. It ingests modern upstream data feeds (Schedules Direct, TMDb, MusicBrainz) and compiles schema-compliant payloads natively ingested by legacy WMC binaries (`loadmxf.exe` and `ehshell.exe`).
 
 > [!IMPORTANT]
 > **Headless Server Appliance**: MediaCenterServicePack is strictly a backend server, not a media player or media manager. It does **NOT** require or mount media folders. All movie metadata and music artwork are fetched and served directly on-demand via REST APIs, the web dashboard, and client automation scripts.
@@ -17,8 +17,8 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 ## Key Features
 
 1. **EPG Lineup Service**:
-   - Ingests TV listings directly using a service API key (`EPG_API_KEY` or `SCHEDULES_DIRECT_KEY`), querying Schedules Direct / EPG services directly without requiring client files or username/passwords.
-   - Also supports standard upstream XMLTV feeds and local XMLTV files.
+   - Ingests TV listings directly using Schedules Direct account credentials (`SCHEDULES_DIRECT_USER` & `SCHEDULES_DIRECT_PASS`) or an API key/token (`EPG_API_KEY`).
+   - Automatically handles SD-JSON lineup discovery and registration for your local postal code (`POSTAL_CODE`), supporting over-the-air (OTA) antenna and cable lineups.
    - Compiles schema-compliant `.mxf` (Media Center XML Format) payloads adhering to Microsoft's `McStore.dll` schema (`Channel`, `Lineup`, `ScheduleEntry`, `Program`, `SeriesInfo`, `Keyword`, `GuideImage`).
    - Enables native Windows Media Center "Record Series" DVR scheduling.
    - Hosted at `http://<docker-host>:8080/api/guide.mxf`.
@@ -48,8 +48,8 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 
 ```
                       +---------------------------------------+
-                      | Upstream Feeds                        |
-                      | - XMLTV / Schedules Direct            |
+                      | Upstream Online Services              |
+                      | - Schedules Direct (TV Guide)         |
                       | - The Movie Database (TMDb)           |
                       | - MusicBrainz & Cover Art Archive     |
                       +-------------------+-------------------+
@@ -60,8 +60,8 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 |                                                                             |
 |   +--------------------+   +--------------------+   +-------------------+   |
 |   | EPG Lineup Service |   | Direct Movie Engine|   | Direct Music Eng  |   |
-|   | - XMLTV Parser     |   | - TMDb Search/Get  |   | - MusicBrainz WS2 |   |
-|   | - Schedules Direct |   | - MDR-DVD 5.0 XML  |   | - 500x500 Cover   |   |
+|   | - Schedules Direct |   | - TMDb Search/Get  |   | - MusicBrainz WS2 |   |
+|   | - SD-JSON API      |   | - MDR-DVD 5.0 XML  |   | - 500x500 Cover   |   |
 |   | - MXF Generator    |   | - folder/poster.jpg|   | - AlbumArtSmall   |   |
 |   +---------+----------+   +---------+----------+   +---------+---------+   |
 |             |                        |                        |             |
@@ -117,9 +117,9 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 │   │       └── index.html       # Web administration dashboard
 │   ├── epg/
 │   │   ├── models.py            # Relational EPG data models
-│   │   ├── xmltv_parser.py      # XMLTV feed parser with episode numbering
-│   │   ├── schedules_direct.py  # Schedules Direct JSON API client
+│   │   ├── schedules_direct.py  # Schedules Direct JSON API client & token authenticator
 │   │   ├── mxf_generator.py     # Microsoft MXF schema serializer
+│   │   ├── xmltv_parser.py      # Secondary XMLTV feed parser
 │   │   └── pipeline.py          # Orchestration pipeline and fallback generator
 │   ├── metadata/
 │   │   ├── tmdb_client.py       # TMDb API client & title extraction
@@ -151,7 +151,7 @@ git clone https://github.com/theretrogeekyt-dev/MediaCenterServicePack.git
 cd MediaCenterServicePack
 ```
 
-Edit `docker-compose.yml` to specify your timezone, upstream guide source, and optional API keys:
+Edit `docker-compose.yml` to specify your timezone, Schedules Direct credentials or EPG API key, and optional TMDb API key:
 
 ```yaml
 services:
@@ -163,11 +163,24 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # System & Timezone configuration
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
-      - EPG_API_KEY=your_epg_service_api_key_here
+
+      # TV Guide EPG Service Configuration (Schedules Direct)
+      # Provide your Login Name & Password directly:
+      - SCHEDULES_DIRECT_USER=your_login_name
+      - SCHEDULES_DIRECT_PASS=your_password
+      # Optional local postal code for antenna broadcast lineup (e.g. 67147):
+      - POSTAL_CODE=your_postal_code
+      # Or provide session token / username:password via EPG_API_KEY:
+      # - EPG_API_KEY=
+
+      # Metadata API Keys (for direct TMDb queries)
       - TMDB_API_KEY=your_tmdb_api_key_here
+
+      # Background cron EPG sync schedule (standard crontab format)
       - CRON_EPG_SYNC=0 3 * * *
     volumes:
       - ./config:/config
@@ -194,13 +207,12 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `PGID` | `1000` | Group ID for volume file ownership |
 | `PORT` | `8080` | Internal HTTP listening port |
 | `CONFIG_DIR` | `/config` | Path to persistent storage for app settings, cache, and `guide.mxf` |
-| `EPG_API_KEY` | *None* | Direct Service API key / token (Schedules Direct or EPG service) |
+| `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct Login Name (from your account overview) |
+| `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password |
+| `POSTAL_CODE` | *None* | Local zip/postal code for over-the-air antenna lineup auto-discovery |
+| `EPG_API_KEY` | *None* | Direct service API key, session token, or `username:password` string |
 | `SCHEDULES_DIRECT_KEY` | *None* | Schedules Direct direct API token alias |
 | `EPG_SERVICE_URL` | *None* | Custom EPG service endpoint (defaults to Schedules Direct 20141201) |
-| `XMLTV_URL` | *None* | HTTP/HTTPS URL to an upstream XMLTV feed |
-| `XMLTV_FILE` | *None* | Local path to an XMLTV file (e.g. `/config/guide.xml`) |
-| `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct account username (if no API key used) |
-| `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password (if no API key used) |
 | `TMDB_API_KEY` | *None* | API Key for The Movie Database (v3) |
 | `CRON_EPG_SYNC` | `0 3 * * *` | Crontab expression for daily EPG sync (03:00) |
 
@@ -261,8 +273,8 @@ pip install -r requirements.txt pytest pytest-asyncio
 python -m pytest -v
 ```
 
-All 15 tests validate:
-- XMLTV date format parsing with timezone offsets.
+All 18 tests validate:
+- Schedules Direct API token authentication, SHA-1 password hashing, and auto lineup mapping.
 - Microsoft MXF schema compliance (`McStore.dll`, `Providers`, `With`, `ScheduleEntries`, `Lineup`).
 - `dvdid.xml` 5.0 MDR-DVD schema validation.
 - ID3v2.3 tag compliance and 500x500 Pillow image resizing.
@@ -276,7 +288,7 @@ All 15 tests validate:
 The repository includes an automated GitHub Actions CI/CD pipeline defined in [`.github/workflows/docker-ci.yml`](file:///.github/workflows/docker-ci.yml):
 
 1. **Unit & Integration Testing**:
-   Executes the full 15-test pytest suite on Python 3.12.
+   Executes the full 18-test pytest suite on Python 3.12.
 2. **Container Build & Live Smoke Testing**:
    - Builds the Docker image with Docker Buildx (`docker/setup-buildx-action@v3`) and GitHub Actions layer caching.
    - Spins up the container and polls `/health` until healthy.
