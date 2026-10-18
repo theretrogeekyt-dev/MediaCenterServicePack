@@ -34,13 +34,18 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
    - Downloads and resizes front cover art to strict **500x500** (`Folder.jpg`) and **75x75** (`AlbumArtSmall.jpg`) WMC standards.
    - Generates downloadable ZIP packages for direct injection into WMC's `art_cache` or local directories.
 
-4. **Self-Contained Dashboard & Scheduler**:
+4. **DNS Auto-Discovery & Zero-Config Setup**:
+   - Built-in lightweight async DNS server (UDP/TCP port 53) that intercepts legacy Microsoft TV Guide and metadata endpoints (`data.tvdownload.microsoft.com`, `services.tvdownload.microsoft.com`, `dvd.windowsmedia.com`, etc.) and discovery hostnames (`mediacenter.local`, `wmc.local`, `openmce.local`), resolving them to the server IP.
+   - Forwards all standard internet DNS queries to upstream resolvers (`1.1.1.1`, `8.8.8.8`).
+   - WMC clients pointing their DNS to MediaCenterServicePack connect automatically without needing `-ServerUrl`, and legacy background tasks resolve locally.
+
+5. **Self-Contained Dashboard & Scheduler**:
    - Built-in APScheduler running configurable cron jobs for guide synchronization.
    - Interactive web dashboard with real-time direct search and 1-click download tools for movies and music.
-   - Native container health check endpoint (`GET /health`).
+   - Native container health check endpoint (`GET /health`) and DNS diagnostics (`GET /api/dns/status`).
 
-5. **Client Automation Helper**:
-   - `client/sync-wmc.ps1`: Lightweight PowerShell script for WMC machines to download `guide.mxf`, safely manage background services (`ehsched`, `ehrecvr`), execute `loadmxf.exe -i guide.mxf`, and invoke `ehPrivJob.exe` to refresh thumbnail and metadata caches. Also supports direct movie and album artwork package downloads.
+6. **Client Automation Helper**:
+   - `client/sync-wmc.ps1`: Lightweight PowerShell script with automatic server discovery. Can be executed with zero parameters (`.\sync-wmc.ps1`) when DNS is configured, or with `-ServerUrl`. Downloads `guide.mxf`, safely manages background services (`ehsched`, `ehrecvr`), executes `loadmxf.exe -i guide.mxf`, and invokes `ehPrivJob.exe`. Also supports direct movie and album artwork package downloads.
 
 ---
 
@@ -52,6 +57,7 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
                       | - Schedules Direct (TV Guide)         |
                       | - The Movie Database (TMDb)           |
                       | - MusicBrainz & Cover Art Archive     |
+                      | - Upstream DNS (1.1.1.1, 8.8.8.8)     |
                       +-------------------+-------------------+
                                           |
                                           v
@@ -70,26 +76,31 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 |                               (dvdid.xml + artwork)    (Folder.jpg + APIC)  |
 |                                                                             |
 |   +---------------------------------------------------------------------+   |
-|   | FastAPI Web Server & Admin Dashboard (Port 8080)                     |   |
-|   | GET /health | GET /api/guide.mxf | GET /api/status | GET /api/...   |   |
+|   | Async DNS Auto-Discovery & Interception Engine (Port 53 UDP/TCP)     |   |
+|   | Resolves data.tvdownload.microsoft.com, dvd.windowsmedia.com,       |   |
+|   | mediacenter.local, wmc.local -> Local Server IP                     |   |
+|   +---------------------------------------------------------------------+   |
+|   | FastAPI Web Server & Admin Dashboard (Ports 80 & 8080)              |   |
+|   | GET /health | GET /api/guide.mxf | GET /api/dns/status | GET /      |   |
 |   +---------------------------------------------------------------------+   |
 +-------------------------------------+---------------------------------------+
                                       |
-                     HTTP Pull / On-Demand Downloads
-          (guide.mxf / movie ZIP bundles / album art ZIP bundles)
+         DNS Interception (Port 53) & HTTP Data Pull (Ports 80 / 8080)
+           (guide.mxf / movie ZIP bundles / album art ZIP bundles)
                                       v
 +-----------------------------------------------------------------------------+
 | Windows Media Center Host (Windows 7 / 8.1 / 10 / 11 Community Edition)     |
 |                                                                             |
-|   1. Windows Task Scheduler executes:                                       |
-|      client/sync-wmc.ps1 -ServerUrl http://<docker-host>:8080               |
+|   Option A: Zero-Config DNS Auto-Discovery                                  |
+|     - Point client DNS to MediaCenterServicePack IP                         |
+|     - Run: sync-wmc.ps1 (auto-discovers server & imports guide.mxf)         |
 |                                                                             |
-|   2. Database Ingestion:                                                    |
-|      %windir%\ehome\loadmxf.exe -i guide.mxf                                |
+|   Option B: Direct Script Execution                                         |
+|     - Run: sync-wmc.ps1 -ServerUrl http://<docker-host>:8080                |
 |                                                                             |
-|   3. Cache & Thumbnail Refresh:                                             |
-|      %windir%\ehome\ehPrivJob.exe /DoReIndexing /UpdateDiscMetadata         |
-|      Start-Service ehsched, ehrecvr                                         |
+|   Database Ingestion & Cache Refresh:                                       |
+|     - %windir%\ehome\loadmxf.exe -i guide.mxf                               |
+|     - %windir%\ehome\ehPrivJob.exe /DoReIndexing /UpdateDiscMetadata        |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -104,17 +115,20 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 ├── .dockerignore                # Build context exclusion rules
 ├── Dockerfile                   # Multi-stage lightweight Python 3.12-slim build
 ├── docker-compose.yml           # Pre-configured compose stack with persistent config mount
-├── docker-entrypoint.sh         # Dynamic non-root PUID/PGID permissions mapper
-├── requirements.txt             # Core backend dependencies
+├── docker-entrypoint.sh         # Dynamic non-root PUID/PGID permissions mapper & net bind capabilities
+├── requirements.txt             # Core backend dependencies (FastAPI, dnslib, lxml, mutagen, Pillow)
 ├── pytest.ini                   # Async test runner configuration
 ├── client/
-│   └── sync-wmc.ps1             # Standalone Windows client sync script
+│   └── sync-wmc.ps1             # Standalone Windows client sync script with auto-discovery
 ├── src/
-│   ├── config.py                # Pydantic settings and path resolution
+│   ├── config.py                # Pydantic settings, dynamic LAN IP detection & path resolution
 │   ├── api/
-│   │   ├── main.py              # FastAPI server and health check endpoints
+│   │   ├── main.py              # FastAPI server, WMC domain middleware & health check endpoints
 │   │   └── templates/
-│   │       └── index.html       # Web administration dashboard
+│   │       └── index.html       # Web administration dashboard with DNS status & 1-click tools
+│   ├── dns/
+│   │   ├── __init__.py          # DNS module package
+│   │   └── server.py            # Async UDP & TCP DNS server and upstream forwarder
 │   ├── epg/
 │   │   ├── models.py            # Relational EPG data models
 │   │   ├── schedules_direct.py  # Schedules Direct JSON API client & token authenticator
@@ -134,6 +148,7 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
     ├── conftest.py              # Pytest isolation fixtures
     ├── test_api.py              # FastAPI endpoint tests
     ├── test_direct_metadata.py  # Direct movie and music engine & download tests
+    ├── test_dns.py              # DNS server, stats, interception & middleware tests
     ├── test_epg_mxf.py          # MXF schema compliance & pipeline tests
     └── test_metadata.py         # dvdid.xml & ID3v2.3 tagger tests
 ```
@@ -162,11 +177,21 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "80:8080"
+      - "53:53/udp"
+      - "53:53/tcp"
     environment:
       # System & Timezone configuration
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
+
+      # DNS Server & Auto-Discovery Configuration
+      - ENABLE_DNS_SERVER=true
+      - DNS_PORT=53
+      # Host IP for DNS resolution (auto-detected if omitted)
+      # - DNS_HOST_IP=192.168.1.100
+      - UPSTREAM_DNS=1.1.1.1,8.8.8.8
 
       # TV Guide EPG Service Configuration (Schedules Direct)
       # Provide your Login Name & Password directly:
@@ -208,6 +233,10 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `PGID` | `1000` | Group ID for volume file ownership |
 | `PORT` | `8080` | Internal HTTP listening port |
 | `CONFIG_DIR` | `/config` | Path to persistent storage for app settings, cache, and `guide.mxf` |
+| `ENABLE_DNS_SERVER` | `true` | Enable built-in async DNS server for zero-config WMC auto-discovery |
+| `DNS_PORT` | `53` | DNS listening port (UDP & TCP) |
+| `DNS_HOST_IP` | *Auto-detected* | LAN IP returned for WMC and discovery hostname queries |
+| `UPSTREAM_DNS` | `1.1.1.1,8.8.8.8` | Comma-separated upstream DNS servers for forwarding internet queries |
 | `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct Login Name (from your account overview) |
 | `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password |
 | `POSTAL_CODE` | *None* | Local zip/postal code for over-the-air antenna lineup auto-discovery |
@@ -223,17 +252,31 @@ Access the dashboard at `http://<docker-host>:8080/`.
 
 On your Windows Media Center PC (running Windows 7, 8.1, 10, or 11 with the WMC community package):
 
-1. Copy `client/sync-wmc.ps1` to a permanent location (e.g., `C:\Scripts\sync-wmc.ps1`).
-2. Test the script in an elevated PowerShell terminal:
+### Option 1: Zero-Config DNS Auto-Discovery (Recommended)
+
+1. Set the Primary DNS server on your WMC client machine or network adapter to the IP of your MediaCenterServicePack server (e.g. `192.168.1.100`).
    ```powershell
-   powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080
+   # In elevated PowerShell on the WMC client:
+   Get-NetAdapter | Where-Object Status -eq 'Up' | Set-DnsClientServerAddress -ServerAddresses ("192.168.1.100")
    ```
-3. Create a Scheduled Task in Windows Task Scheduler:
-   - **Trigger**: Daily at 04:00 AM (or after your Docker EPG sync cron).
-   - **Action**: Start a program
+2. Copy `client/sync-wmc.ps1` to your WMC machine (e.g., `C:\Scripts\sync-wmc.ps1`).
+3. Run `sync-wmc.ps1` with zero arguments:
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1
+   ```
+   The script automatically probes `mediacenter.local:8080`, `wmc.local:8080`, and the adapter's DNS server, downloads `guide.mxf`, and imports it into Media Center.
+4. Schedule daily automatic ingestion:
    - **Program**: `powershell.exe`
-   - **Arguments**: `-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -Quiet`
+   - **Arguments**: `-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Scripts\sync-wmc.ps1 -Quiet`
    - **Run with highest privileges**: Enabled (required for `loadmxf.exe`).
+
+### Option 2: Direct HTTP URL Execution
+
+If you prefer not to change DNS settings on the client machine, pass `-ServerUrl` explicitly:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080
+```
 
 ### Direct Movie & Music Downloads via Client Script
 
@@ -241,18 +284,19 @@ You can also use `sync-wmc.ps1` to download movie metadata and music artwork pac
 
 ```powershell
 # Directly download movie metadata (dvdid.xml + folder.jpg) into WMC DvdInfoCache:
-powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -DownloadMovie "Inception"
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -DownloadMovie "Inception"
 
 # Directly download album artwork (Folder.jpg 500x500 + AlbumArtSmall.jpg 75x75) into WMC art_cache:
-powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -DownloadAlbum "Dark Side of the Moon"
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -DownloadAlbum "Dark Side of the Moon"
 ```
 
 ---
 
 ## API Endpoints
 
-- `GET /health`: JSON container health check reporting service uptime and EPG status.
+- `GET /health`: JSON container health check reporting service uptime, EPG status, and DNS service metrics.
 - `GET /api/guide.mxf`: Serves compiled MXF XML payload (`loadmxf.exe` target).
+- `GET /api/dns/status`: Returns DNS server status, listening port, target server IP, and query metrics.
 - `GET /api/status`: Detailed system metrics, configured paths, channel counts, and job schedules.
 - `GET /api/epg/channels`: Formatted active channel lineup and upcoming schedule entries for web browser viewing.
 - `POST /api/epg/sync`: Manually triggers immediate EPG compilation, optionally accepting `?api_key=...` or `?source_url=...`.
@@ -264,7 +308,7 @@ powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl 
 - `GET /api/metadata/music/search`: Directly search MusicBrainz album releases (`?query=...&artist=...`).
 - `GET /api/metadata/music/{mbid}`: Directly retrieve release details and track list.
 - `GET /api/metadata/music/{mbid}/download`: Download complete WMC music package (.zip) with 500x500 `Folder.jpg` and `AlbumArtSmall.jpg`.
-- `GET /`: Modern Web Suite dashboard featuring tabbed navigation: TV Guide & Lineup Viewer, Movie Studio, Music Studio, Dynamic WMC Client Setup, and System Diagnostics.
+- `GET /`: Modern Web Suite dashboard featuring tabbed navigation: TV Guide & Lineup Viewer, Movie Studio, Music Studio, Dynamic WMC Client Setup (with DNS auto-discovery instructions), and System Diagnostics.
 
 ---
 
@@ -277,13 +321,15 @@ pip install -r requirements.txt pytest pytest-asyncio
 python -m pytest -v
 ```
 
-All 21 tests validate:
+All 31 tests validate:
+- DNS auto-discovery server, query interception (`A` and `AAAA` records), upstream forwarding, and native WMC HTTP interception middleware.
 - Schedules Direct API token authentication, SHA-1 password hashing, and auto lineup mapping.
 - Microsoft MXF schema compliance (`McStore.dll`, `Providers`, `With`, `ScheduleEntries`, `Lineup`).
 - `dvdid.xml` 5.0 MDR-DVD schema validation and XML preview endpoint.
 - ID3v2.3 tag compliance and 500x500 Pillow image resizing.
 - Direct TMDb & MusicBrainz online metadata queries and WMC ZIP bundle generation.
 - Dynamic LAN host detection, EPG configuration endpoints, and rich HTML dashboard rendering.
+
 
 ---
 

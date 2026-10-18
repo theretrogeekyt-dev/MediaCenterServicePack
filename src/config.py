@@ -41,6 +41,25 @@ class Settings(BaseSettings):
     # Cron schedules
     CRON_EPG_SYNC: str = "0 3 * * *"       # Daily at 03:00
 
+    # DNS Auto-Discovery & Domain Redirection Server
+    ENABLE_DNS_SERVER: bool = True
+    DNS_PORT: int = 53
+    DNS_HOST_IP: Optional[str] = None
+    UPSTREAM_DNS: str = "1.1.1.1,8.8.8.8"
+
+    @property
+    def detected_host_ip(self) -> str:
+        """Returns configured DNS_HOST_IP or auto-detects primary outgoing IP address."""
+        if self.DNS_HOST_IP and self.DNS_HOST_IP.strip():
+            return self.DNS_HOST_IP.strip()
+        import socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("1.1.1.1", 80))
+                return s.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+
     @property
     def epg_service_key(self) -> Optional[str]:
         """Returns direct service API key if configured (EPG_API_KEY or SCHEDULES_DIRECT_KEY)."""

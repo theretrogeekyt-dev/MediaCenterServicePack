@@ -998,10 +998,48 @@
         <!-- TAB 4: 💻 WMC Client Setup                                        -->
         <!-- ================================================================= -->
         <div id="tab-client" class="tab-pane">
+            <!-- DNS Auto-Discovery & Automatic Redirection Banner -->
+            <div class="card" style="border-color: var(--accent-blue); background: linear-gradient(135deg, rgba(0, 120, 215, 0.12) 0%, rgba(18, 26, 44, 0.85) 100%); margin-bottom: 24px;">
+                <div class="card-header-row">
+                    <div>
+                        <div class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                            <span>🌐 DNS Auto-Discovery & Zero-Config Setup</span>
+                            <span class="badge badge-success" id="dns-badge">Port 53 Active</span>
+                        </div>
+                        <div class="card-subtitle">Connect Windows Media Center automatically with zero manual URL configuration</div>
+                    </div>
+                </div>
+
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
+                    MediaCenterServicePack includes an integrated, high-speed DNS server that intercepts legacy Microsoft TV Guide hostnames (<code>data.tvdownload.microsoft.com</code>) and auto-discovery domains (<code>mediacenter.local</code>, <code>wmc.local</code>) directly to this server while forwarding all standard internet queries.
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
+                    <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px;">
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">WMC Client Primary DNS Server</div>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-family: monospace; font-size: 1.15rem; color: var(--accent-cyan); font-weight: 600;" id="dns-ip-val">{{ dns_server_ip }}</span>
+                            <button class="btn btn-secondary btn-sm" onclick="copySnippet('dns-ip-val')">Copy DNS IP</button>
+                        </div>
+                    </div>
+                    <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px;">
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">Automatic WMC Redirections</div>
+                        <div style="font-size: 0.82rem; color: #a0aec0; line-height: 1.4;">
+                            <code>data.tvdownload.microsoft.com</code><br>
+                            <code>mediacenter.local</code> &bull; <code>wmc.local</code> &bull; <code>openmce.local</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(0, 120, 215, 0.08); border-left: 3px solid var(--accent-blue); padding: 10px 14px; border-radius: 4px; font-size: 0.85rem; color: #cbd5e1;">
+                    <strong>Tip:</strong> Set your Media Center PC's IPv4 DNS server (or home router DNS) to <strong><code>{{ dns_server_ip }}</code></strong>. Once set, running the client sync script requires zero command line flags, and WMC automatically discovers this server on your LAN!
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header-row">
                     <div>
-                        <div class="card-title">Windows Media Center Client Setup</div>
+                        <div class="card-title">Windows Media Center Client Sync</div>
                         <div class="card-subtitle">One-command client sync and automated daily Task Scheduler configuration</div>
                     </div>
                 </div>
@@ -1010,26 +1048,22 @@
                     On each Windows 7, 8.1, 10, or 11 machine running Windows Media Center, run the client synchronization script. It downloads <code>guide.mxf</code>, executes <code>loadmxf.exe</code>, and triggers the eHome background indexing service.
                 </p>
 
-                <!-- Detected Server URL -->
-                <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 18px; margin-bottom: 20px;">
-                    <label class="form-label" style="display: block; margin-bottom: 6px;">Target Backend Server URL (Auto-detected from browser)</label>
-                    <div style="display: flex; gap: 10px; max-width: 500px;">
-                        <input type="text" id="client-server-url" class="input-text" style="flex: 1;" value="http://{{ host_ip }}:{{ port }}" oninput="updateSnippet()">
-                        <button class="btn btn-secondary btn-sm" onclick="resetServerUrl()">Reset</button>
-                    </div>
-                    <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 6px;">
-                        Uses your current LAN browser address so WMC clients can reach this server directly.
-                    </div>
-                </div>
-
                 <!-- Step 1: Quick One-Time Test Command -->
                 <div style="margin-bottom: 24px;">
-                    <h4 style="color: #ffffff; font-size: 1rem; margin-bottom: 8px;">Step 1: Test EPG Import in PowerShell</h4>
+                    <h4 style="color: #ffffff; font-size: 1rem; margin-bottom: 8px;">Step 1: Run Sync (Auto-Discovery Enabled)</h4>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">
-                        Open PowerShell as Administrator on your Windows Media Center machine and execute:
+                        Open PowerShell as Administrator on your Windows Media Center machine. With DNS configured, no server URL is required:
+                    </p>
+                    <div class="code-box" style="margin-bottom: 12px;">
+                        <span class="code-text" id="snippet-ps-auto">powershell -ExecutionPolicy Bypass -File .\client\sync-wmc.ps1</span>
+                        <button class="btn btn-sm btn-secondary" onclick="copySnippet('snippet-ps-auto')">Copy</button>
+                    </div>
+
+                    <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;">
+                        Or specify the direct server URL manually if not using DNS auto-discovery:
                     </p>
                     <div class="code-box">
-                        <span class="code-text" id="snippet-ps-test">powershell -ExecutionPolicy Bypass -File .\client\sync-wmc.ps1 -ServerUrl http://192.168.0.146:8080</span>
+                        <span class="code-text" id="snippet-ps-test">powershell -ExecutionPolicy Bypass -File .\client\sync-wmc.ps1 -ServerUrl http://{{ dns_server_ip }}:{{ port }}</span>
                         <button class="btn btn-sm btn-secondary" onclick="copySnippet('snippet-ps-test')">Copy</button>
                     </div>
                 </div>

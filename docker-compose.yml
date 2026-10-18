@@ -8,11 +8,22 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      - "80:8080"
+      - "53:53/udp"
+      - "53:53/tcp"
     environment:
       # System & Timezone configuration
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
+
+      # DNS Auto-Discovery & Domain Redirection Server
+      - ENABLE_DNS_SERVER=true
+      - DNS_PORT=53
+      # Optional host IP override for clients (auto-detects if left blank):
+      - DNS_HOST_IP=
+      # Upstream DNS servers for general internet resolution:
+      - UPSTREAM_DNS=1.1.1.1,8.8.8.8
 
       # TV Guide EPG Service Configuration (Schedules Direct)
       # Provide your Login Name & Password directly:

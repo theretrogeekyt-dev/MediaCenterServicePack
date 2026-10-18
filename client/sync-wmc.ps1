@@ -95,6 +95,72 @@ if (-not (Test-Path $WorkingDirectory)) {
     New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 }
 
+# 3. Automatic Server Discovery (via DNS / host probes)
+function Discover-Server {
+    param([string]$DefaultUrl)
+
+    # If user explicitly supplied a non-default ServerUrl, test it first
+    if ($PSBoundParameters.ContainsKey('ServerUrl')) {
+        try {
+            $resp = Invoke-RestMethod -Uri "$($DefaultUrl.TrimEnd('/'))/health" -TimeoutSec 3 -ErrorAction Stop
+            if ($resp.status -eq "healthy" -or $resp.version) {
+                return $DefaultUrl
+            }
+        } catch {
+            Log-Message "Notice: Provided ServerUrl '$DefaultUrl' failed health check. Probing auto-discovery..." "WARN"
+        }
+    } else {
+        # Check localhost first
+        try {
+            $resp = Invoke-RestMethod -Uri "$($DefaultUrl.TrimEnd('/'))/health" -TimeoutSec 1 -ErrorAction Stop
+            if ($resp.status -eq "healthy" -or $resp.version) {
+                return $DefaultUrl
+            }
+        } catch {}
+    }
+
+    Log-Message "Auto-discovering MediaCenterServicePack server via DNS and local network..."
+    $candidates = @(
+        "http://mediacenter.local:8080",
+        "http://mediacenter.local",
+        "http://wmc.local:8080",
+        "http://wmc.local",
+        "http://openmce.local:8080",
+        "http://openmce.local",
+        "http://data.tvdownload.microsoft.com:8080",
+        "http://data.tvdownload.microsoft.com",
+        "http://mediacenter:8080",
+        "http://wmc:8080"
+    )
+
+    # Also probe any configured IPv4 DNS server IP addresses
+    try {
+        $dnsList = (Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses | Select-Object -Unique
+        foreach ($ip in $dnsList) {
+            if ($ip -and $ip -ne "127.0.0.1" -and $ip -notmatch "^169\.254\.") {
+                $candidates += "http://${ip}:8080"
+                $candidates += "http://${ip}"
+            }
+        }
+    } catch {}
+
+    foreach ($cand in $candidates) {
+        try {
+            $resp = Invoke-RestMethod -Uri "$cand/health" -TimeoutSec 2 -ErrorAction Stop
+            if ($resp.status -eq "healthy" -or $resp.version) {
+                Log-Message "Auto-discovered server at: $cand (v$($resp.version))" "SUCCESS"
+                return $cand
+            }
+        } catch {}
+    }
+
+    Log-Message "Could not auto-discover server. Falling back to: $DefaultUrl" "WARN"
+    return $DefaultUrl
+}
+
+$ServerUrl = Discover-Server -DefaultUrl $ServerUrl
+Log-Message "Active Server Endpoint: $ServerUrl"
+
 $webClient = New-Object System.Net.WebClient
 $webClient.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
 

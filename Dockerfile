@@ -24,12 +24,13 @@ LABEL maintainer="theretrogeekyt-dev" \
       description="MediaCenterServicePack - Service Pack & Backend for Windows Media Center" \
       version="1.0.0"
 
-# Install runtime utilities: gosu (PUID/PGID execution), curl (healthcheck), tzdata
+# Install runtime utilities: gosu (PUID/PGID execution), curl (healthcheck), tzdata, libcap2-bin (port 53/80 binding)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     curl \
     tzdata \
     ca-certificates \
+    libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -42,7 +43,8 @@ COPY src/ /app/src/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh && \
-    mkdir -p /config
+    mkdir -p /config && \
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/python3* 2>/dev/null || true
 
 # Default environment configuration
 ENV PYTHONUNBUFFERED=1 \
@@ -53,7 +55,7 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=UTC \
     PORT=8080
 
-EXPOSE 8080
+EXPOSE 8080 80 53/udp 53/tcp
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

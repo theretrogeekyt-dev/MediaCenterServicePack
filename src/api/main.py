@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from src import __version__
 from src.config import settings
+from src.dns import dns_service, DNSStats
 from src.epg.pipeline import EPGPipeline, EPGStats, generate_fallback_epg
 from src.metadata.movie_engine import MovieEngine
 from src.metadata.music_engine import MusicEngine
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
     # Start background scheduler
     scheduler_service.start()
 
+    # Start DNS auto-discovery & domain redirection server
+    await dns_service.start()
+
     # Pre-compile guide.mxf if not present
     existing_guide = settings.get_existing_guide_mxf()
     if not existing_guide:
@@ -51,6 +55,7 @@ async def lifespan(app: FastAPI):
 
     # Clean shutdown
     logger.info("Shutting down MediaCenterServicePack backend...")
+    await dns_service.stop()
     scheduler_service.shutdown()
     await movie_engine.close()
     await music_engine.close()
@@ -64,6 +69,36 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def wmc_domain_interception_middleware(request: Request, call_next):
+    """
+    Seamlessly intercepts native WMC HTTP requests redirected via DNS.
+    Serves guide.mxf directly when clients query legacy Microsoft EPG domains.
+    """
+    host = request.headers.get("host", "").lower().split(":")[0]
+    path = request.url.path
+
+    # Intercept native TV Guide download calls to *.tvdownload.microsoft.com
+    if "tvdownload.microsoft.com" in host and not path.startswith("/api/") and not path.startswith("/health"):
+        logger.info(f"Intercepted native WMC guide request from host '{host}' at '{path}'. Serving guide.mxf...")
+        mxf_file = settings.get_existing_guide_mxf()
+        if mxf_file and mxf_file.exists():
+            return FileResponse(
+                path=str(mxf_file),
+                media_type="application/xml",
+                filename="guide.mxf",
+                headers={"Content-Disposition": 'attachment; filename="guide.mxf"'},
+            )
+        elif EPGPipeline.last_mxf_bytes:
+            return Response(
+                content=EPGPipeline.last_mxf_bytes,
+                media_type="application/xml",
+                headers={"Content-Disposition": 'attachment; filename="guide.mxf"'},
+            )
+
+    return await call_next(request)
+
+
 @app.get("/health")
 async def health_check():
     """Integrated health check endpoint for Docker / orchestration."""
@@ -74,6 +109,7 @@ async def health_check():
         "uptime_seconds": uptime,
         "version": __version__,
         "epg": EPGStats.to_dict(),
+        "dns": DNSStats.to_dict(),
     }
 
 
@@ -85,6 +121,7 @@ async def get_system_status():
         "uptime_seconds": int(time.time() - START_TIME),
         "timezone": settings.TZ,
         "epg": EPGStats.to_dict(),
+        "dns": DNSStats.to_dict(),
         "jobs": scheduler_service.get_job_info(),
         "config": {
             "config_dir": str(settings.config_path),
@@ -92,8 +129,18 @@ async def get_system_status():
             "schedules_direct_configured": bool(settings.SCHEDULES_DIRECT_USER or settings.epg_service_key),
             "xmltv_configured": bool(settings.XMLTV_URL or settings.XMLTV_FILE),
             "tmdb_configured": bool(settings.TMDB_API_KEY),
+            "dns_server_enabled": settings.ENABLE_DNS_SERVER,
+            "dns_port": settings.DNS_PORT,
+            "detected_host_ip": settings.detected_host_ip,
         },
     }
+
+
+@app.get("/api/dns/status")
+async def get_dns_status():
+    """Return DNS auto-discovery status and query statistics."""
+    return DNSStats.to_dict()
+
 
 
 @app.get("/api/guide.mxf")
@@ -395,6 +442,8 @@ async def index_page(request: Request):
             "host_ip": request.client.host if request.client else "localhost",
             "port": settings.PORT,
             "epg": EPGStats.to_dict(),
+            "dns": DNSStats.to_dict(),
+            "dns_server_ip": settings.detected_host_ip,
             "sd_user": settings.SCHEDULES_DIRECT_USER or "",
             "postal_code": settings.POSTAL_CODE or "",
             "has_sd_pass": bool(settings.SCHEDULES_DIRECT_PASS),

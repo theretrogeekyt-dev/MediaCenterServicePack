@@ -140,6 +140,14 @@ jobs:
           curl -sSf http://localhost:8080/api/status | grep -E '"timezone"\s*:\s*"UTC"'
           echo "Status endpoint verification succeeded!"
 
+      - name: Validate DNS Status and WMC Domain Interception
+        run: |
+          echo "Testing /api/dns/status endpoint..."
+          curl -sSf http://localhost:8080/api/dns/status | grep -q 'intercepted_domains'
+          echo "Testing native WMC guide request interception..."
+          curl -sSf -H "Host: data.tvdownload.microsoft.com" http://localhost:8080/ | grep -q '<MXF'
+          echo "DNS and WMC interception verification succeeded!"
+
       - name: Clean up test container
         if: always()
         run: |

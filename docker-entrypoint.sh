@@ -39,5 +39,8 @@ chown -R "$PUID:$PGID" /config 2>/dev/null || true
 # Set umask so newly created files (guide.mxf, settings.json) are writable
 umask 0000
 
+# Grant capability to bind to privileged ports (< 1024 like DNS port 53 and HTTP port 80)
+setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which python)")" 2>/dev/null || true
+
 # Execute target command as the configured non-root user
 exec gosu "$PUID:$PGID" "$@"
