@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.config import settings
-from src.metadata.dvdid_generator import DVDIDGenerator
-from src.metadata.tmdb_client import TMDbClient, clean_movie_title
+from src.metadata.movie_engine import MovieEngine
+from src.metadata.tmdb_client import clean_movie_title
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,7 @@ class MovieScanner:
     """Scans movie shares, identifies titles, fetches TMDb data, and writes sidecars."""
 
     def __init__(self, tmdb_api_key: Optional[str] = None):
-        self.tmdb_client = TMDbClient(api_key=tmdb_api_key or settings.TMDB_API_KEY)
-        self.generator = DVDIDGenerator()
+        self.engine = MovieEngine(tmdb_api_key=tmdb_api_key or settings.TMDB_API_KEY)
 
     async def scan_directory(self, root_path: Optional[Path] = None, force_refresh: bool = False) -> Dict[str, int]:
         """Scan movie directory for folders/files needing dvdid.xml and cover art."""
@@ -52,19 +51,15 @@ class MovieScanner:
 
         try:
             if not target_root.exists():
-                logger.warning(f"Movies directory does not exist: {target_root}")
+                logger.info(f"Movies directory does not exist or not mounted: {target_root}")
                 MovieScannerStats.status = "Idle"
                 return {"scanned": 0, "updated": 0, "errors": 0}
 
-            # Discover movie folders or standalone movie files
             candidate_dirs: List[Path] = []
-
             for item in target_root.iterdir():
                 if item.is_dir():
-                    # Could be movie folder or VIDEO_TS parent
                     candidate_dirs.append(item)
                 elif item.suffix.lower() in VIDEO_EXTENSIONS:
-                    # Video file in root movies directory - movie directory is item.parent
                     if item.parent not in candidate_dirs:
                         candidate_dirs.append(item.parent)
 
@@ -80,22 +75,11 @@ class MovieScanner:
                 try:
                     title, year = clean_movie_title(movie_dir.name)
                     logger.info(f"Processing movie '{title}' (Year: {year}) in {movie_dir}")
-
-                    # Query TMDb
-                    movie_meta = await self.tmdb_client.search_movie(title, year)
-                    if not movie_meta:
-                        logger.warning(f"Metadata lookup yielded no results for: {title}")
-                        continue
-
-                    # Download poster if available
-                    poster_data = None
-                    if movie_meta.get("poster_url"):
-                        poster_data = await self.tmdb_client.download_image(movie_meta["poster_url"])
-
-                    # Write dvdid.xml and artwork
-                    self.generator.write_sidecars(movie_dir, movie_meta, poster_data)
-                    updated += 1
-
+                    res = await self.engine.download_to_directory(title, movie_dir, year)
+                    if res:
+                        updated += 1
+                    else:
+                        errors += 1
                 except Exception as ex:
                     logger.error(f"Failed processing movie folder '{movie_dir}': {ex}")
                     errors += 1
@@ -116,5 +100,4 @@ class MovieScanner:
             MovieScannerStats.last_error = str(e)
             raise
         finally:
-            await self.tmdb_client.close()
-
+            await self.engine.close()

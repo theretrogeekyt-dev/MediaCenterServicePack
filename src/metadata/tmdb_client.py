@@ -11,14 +11,12 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 
 def clean_movie_title(raw_name: str) -> tuple[str, Optional[int]]:
     """
-    Parse title and year from movie folder/file names.
+    Parse title and year from movie names.
     e.g., 'The.Dark.Knight.2008.1080p.BluRay' -> ('The Dark Knight', 2008)
     e.g., 'Inception (2010)' -> ('Inception', 2010)
     """
-    # Remove file extension if present
     name = re.sub(r"\.(mp4|mkv|avi|iso|m4v|ts|vob)$", "", raw_name, flags=re.IGNORECASE)
 
-    # Extract 4-digit year if present
     year = None
     year_match = re.search(r"[\(\[\s\._](\d{4})[\)\]\s\._]", name)
     if year_match:
@@ -26,77 +24,108 @@ def clean_movie_title(raw_name: str) -> tuple[str, Optional[int]]:
             year_val = int(year_match.group(1))
             if 1900 <= year_val <= 2099:
                 year = year_val
-                # Slice name up to year
                 name = name[: year_match.start()]
         except ValueError:
             pass
 
-    # Clean release group tags and formatting
     name = re.sub(r"[\._]", " ", name)
     name = re.sub(r"(1080p|720p|2160p|4k|bluray|web-dl|dvdrip|x264|x265|aac|dts).*", "", name, flags=re.IGNORECASE)
-    cleaned = name.strip()
-    return cleaned, year
+    return name.strip(), year
 
 
 class TMDbClient:
-    """Client for querying movie metadata and artwork from The Movie Database (TMDb)."""
+    """Client for directly querying movie metadata and artwork from The Movie Database (TMDb)."""
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key
         self._client = httpx.AsyncClient(timeout=20.0)
+        self._synthetic_titles: Dict[int, str] = {}
 
-    async def search_movie(self, title: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """Search TMDb for a movie by title and optional release year."""
+    async def search_movies(self, query: str, year: Optional[int] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search TMDb directly for movies matching query title and optional release year."""
+        cleaned_query, parsed_year = clean_movie_title(query)
+        target_year = year or parsed_year
+
         if not self.api_key:
-            logger.debug("No TMDB_API_KEY configured; returning synthetic metadata.")
-            return {
-                "id": abs(hash(title)) % 1000000,
-                "title": title,
-                "release_date": f"{year}-01-01" if year else "2020-01-01",
-                "overview": f"A feature film titled {title}.",
-                "genres": ["Drama"],
-                "director": "Unknown Director",
-                "lead_performers": ["Featured Cast"],
-                "poster_url": None,
-                "runtime": 120,
-            }
+            logger.debug("No TMDB_API_KEY configured; returning synthetic search results.")
+            mock_id = abs(hash(cleaned_query)) % 1000000
+            self._synthetic_titles[mock_id] = cleaned_query
+            return [
+                {
+                    "id": mock_id,
+                    "title": cleaned_query,
+                    "original_title": cleaned_query,
+                    "release_date": f"{target_year}-01-01" if target_year else "2020-01-01",
+                    "overview": f"Directly queried metadata for {cleaned_query}.",
+                    "poster_url": None,
+                    "vote_average": 8.0,
+                }
+            ]
 
         params: Dict[str, Any] = {
             "api_key": self.api_key,
-            "query": title,
+            "query": cleaned_query,
             "include_adult": "false",
         }
-        if year:
-            params["year"] = str(year)
+        if target_year:
+            params["year"] = str(target_year)
 
         try:
             resp = await self._client.get(f"{TMDB_BASE_URL}/search/movie", params=params)
             resp.raise_for_status()
-            data = resp.json()
-            results = data.get("results", [])
-            if not results:
-                # If searching with year yielded nothing, retry without year
-                if year:
-                    params.pop("year")
-                    resp = await self._client.get(f"{TMDB_BASE_URL}/search/movie", params=params)
-                    data = resp.json()
-                    results = data.get("results", [])
+            results = resp.json().get("results", [])
 
-            if not results:
-                logger.warning(f"No TMDb results found for: {title}")
-                return None
+            # Retry without year if zero results
+            if not results and target_year:
+                params.pop("year")
+                resp = await self._client.get(f"{TMDB_BASE_URL}/search/movie", params=params)
+                results = resp.json().get("results", [])
 
-            movie_id = results[0]["id"]
-            return await self.get_movie_details(movie_id)
+            output = []
+            for item in results[:limit]:
+                poster_path = item.get("poster_path")
+                poster_url = f"{TMDB_IMAGE_BASE}/w780{poster_path}" if poster_path else None
+                output.append({
+                    "id": item.get("id"),
+                    "title": item.get("title", ""),
+                    "original_title": item.get("original_title", ""),
+                    "release_date": item.get("release_date", ""),
+                    "overview": item.get("overview", ""),
+                    "poster_url": poster_url,
+                    "vote_average": item.get("vote_average", 0.0),
+                })
+            return output
 
         except Exception as e:
-            logger.error(f"Error searching TMDb for '{title}': {e}")
-            return None
+            logger.error(f"Error querying TMDb search for '{query}': {e}")
+            return []
 
-    async def get_movie_details(self, movie_id: int) -> Optional[Dict[str, Any]]:
-        """Fetch comprehensive movie details including cast, director, and poster."""
-        if not self.api_key:
+    async def search_movie(self, title: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Convenience method returning detailed metadata for top search hit."""
+        results = await self.search_movies(title, year, limit=1)
+        if not results:
             return None
+        movie_id = results[0]["id"]
+        return await self.get_movie_details(movie_id, fallback_title=results[0]["title"])
+
+    async def get_movie_details(self, movie_id: int, fallback_title: str = "") -> Optional[Dict[str, Any]]:
+        """Directly fetch full movie details by TMDb ID, including cast, director, and MPAA rating."""
+        if not self.api_key:
+            title = fallback_title or self._synthetic_titles.get(movie_id, f"Movie {movie_id}")
+            return {
+                "id": movie_id,
+                "title": title,
+                "original_title": title,
+                "overview": f"Full metadata for movie ID {movie_id}.",
+                "release_date": "2020-01-01",
+                "runtime": 120,
+                "genres": ["Drama", "Action"],
+                "studio": "Universal Studios",
+                "director": "Acclaimed Director",
+                "lead_performers": ["Lead Actor", "Co-Star"],
+                "mpaa_rating": "PG-13",
+                "poster_url": None,
+            }
 
         params = {
             "api_key": self.api_key,
@@ -128,17 +157,15 @@ class TMDbClient:
                             mpaa_rating = cert
                             break
 
-            # Extract poster URL
             poster_path = d.get("poster_path")
             poster_url = f"{TMDB_IMAGE_BASE}/w780{poster_path}" if poster_path else None
 
-            # Studio / Production companies
             companies = [c["name"] for c in d.get("production_companies", [])]
             studio = companies[0] if companies else "Independent"
 
             return {
                 "id": d.get("id"),
-                "title": d.get("title", ""),
+                "title": d.get("title", fallback_title),
                 "original_title": d.get("original_title", ""),
                 "overview": d.get("overview", ""),
                 "release_date": d.get("release_date", ""),
@@ -156,7 +183,7 @@ class TMDbClient:
             return None
 
     async def download_image(self, url: str) -> Optional[bytes]:
-        """Download binary image data from TMDb."""
+        """Directly download binary image data from TMDb."""
         try:
             resp = await self._client.get(url)
             if resp.status_code == 200:
@@ -167,4 +194,3 @@ class TMDbClient:
 
     async def close(self):
         await self._client.aclose()
-

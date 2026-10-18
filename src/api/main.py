@@ -4,14 +4,16 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from src import __version__
 from src.config import settings
 from src.epg.pipeline import EPGPipeline, EPGStats
+from src.metadata.movie_engine import MovieEngine
 from src.metadata.movie_scanner import MovieScannerStats
+from src.metadata.music_engine import MusicEngine
 from src.metadata.music_scanner import MusicScannerStats
 from src.scheduler.tasks import scheduler_service
 
@@ -21,6 +23,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 START_TIME = time.time()
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Global Direct Metadata Engines
+movie_engine = MovieEngine()
+music_engine = MusicEngine()
 
 
 @asynccontextmanager
@@ -45,6 +51,8 @@ async def lifespan(app: FastAPI):
     # Clean shutdown
     logger.info("Shutting down Project eHome backend...")
     scheduler_service.shutdown()
+    await movie_engine.close()
+    await music_engine.close()
 
 
 app = FastAPI(
@@ -97,7 +105,6 @@ async def get_guide_mxf():
     """Serve the compiled Media Center XML Format (MXF) guide data."""
     mxf_file = settings.guide_mxf_file
 
-    # If the file does not exist, trigger a build synchronously
     if not mxf_file.exists() or mxf_file.stat().st_size == 0:
         logger.info("guide.mxf requested but does not exist. Triggering compilation...")
         try:
@@ -141,6 +148,96 @@ async def trigger_media_scan(background_tasks: BackgroundTasks, force_refresh: b
         "status": "accepted",
         "message": "Media scanning task dispatched to background worker.",
     }
+
+
+# =========================================================================
+# Direct Metadata API Endpoints (No Media Folders Required)
+# =========================================================================
+
+@app.get("/api/metadata/movies/search")
+async def search_movies_direct(
+    query: str = Query(..., description="Movie title to search on TMDb"),
+    year: Optional[int] = Query(None, description="Optional 4-digit release year"),
+    limit: int = Query(5, description="Maximum results to return"),
+):
+    """Directly query TMDb for movies without needing media files."""
+    results = await movie_engine.search(query, year, limit=limit)
+    return {"query": query, "count": len(results), "results": results}
+
+
+@app.get("/api/metadata/movies/{movie_id}")
+async def get_movie_metadata_direct(movie_id: int):
+    """Directly fetch full movie metadata details from TMDb."""
+    data = await movie_engine.get_movie_metadata(movie_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Movie ID {movie_id} not found.")
+    return data
+
+
+@app.get("/api/metadata/movies/{movie_id_or_title}/download")
+async def download_movie_package_direct(
+    movie_id_or_title: str,
+    year: Optional[int] = Query(None, description="Optional release year"),
+):
+    """
+    Directly download a complete WMC-compliant movie metadata bundle (.zip).
+    Contains dvdid.xml (5.0 MDR-DVD schema), folder.jpg, and poster.jpg.
+    No local media files or directories required!
+    """
+    pkg = await movie_engine.get_wmc_package(movie_id_or_title, year)
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Movie metadata not found.")
+
+    return Response(
+        content=pkg["zip_package"],
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{pkg["filename"]}"',
+        },
+    )
+
+
+@app.get("/api/metadata/music/search")
+async def search_music_direct(
+    query: str = Query(..., description="Album or release title to search on MusicBrainz"),
+    artist: Optional[str] = Query(None, description="Optional artist name filter"),
+    limit: int = Query(5, description="Maximum results to return"),
+):
+    """Directly query MusicBrainz for album releases without needing audio files."""
+    results = await music_engine.search(query, artist, limit=limit)
+    return {"query": query, "artist": artist, "count": len(results), "results": results}
+
+
+@app.get("/api/metadata/music/{mbid}")
+async def get_music_metadata_direct(mbid: str):
+    """Directly fetch full album metadata and tracklist from MusicBrainz."""
+    data = await music_engine.get_album_metadata(mbid)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"MusicBrainz release {mbid} not found.")
+    return data
+
+
+@app.get("/api/metadata/music/{mbid_or_album}/download")
+async def download_music_package_direct(
+    mbid_or_album: str,
+    artist: Optional[str] = Query(None, description="Optional artist name"),
+):
+    """
+    Directly download a complete WMC-compliant music artwork bundle (.zip).
+    Contains Folder.jpg (500x500 JPEG), AlbumArtSmall.jpg (75x75), and metadata.json.
+    No local audio files or directories required!
+    """
+    pkg = await music_engine.get_wmc_package(mbid_or_album, artist)
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Music metadata or artwork not found.")
+
+    return Response(
+        content=pkg["zip_package"],
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{pkg["filename"]}"',
+        },
+    )
 
 
 @app.get("/", response_class=HTMLResponse)

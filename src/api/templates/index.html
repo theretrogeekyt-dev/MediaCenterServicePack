@@ -168,12 +168,78 @@
             border-color: #334155;
         }
 
-        .client-guide {
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        .section-panel {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 24px;
-            margin-top: 20px;
+            margin-bottom: 24px;
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin: 16px 0;
+        }
+
+        .search-input {
+            flex: 1;
+            background-color: #05070d;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 10px 16px;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .results-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .result-card {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .result-title {
+            font-weight: 600;
+            color: #ffffff;
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+
+        .result-meta {
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            margin-bottom: 8px;
+        }
+
+        .result-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
         .code-block {
@@ -241,6 +307,7 @@
             </div>
         </header>
 
+        <!-- Top Overview Cards -->
         <div class="grid">
             <!-- EPG Lineup Card -->
             <div class="card">
@@ -283,97 +350,124 @@
                 </div>
             </div>
 
-            <!-- Movie Metadata Card -->
+            <!-- Direct Movie Engine Card -->
             <div class="card">
                 <div>
                     <div class="card-header">
                         <div>
                             <div class="card-title">Movie Metadata Engine</div>
-                            <div class="card-subtitle">5.0 MDR-DVD & Sidecar Generator</div>
+                            <div class="card-subtitle">Direct TMDb API & MDR-DVD 5.0</div>
                         </div>
-                        <span class="badge-pill" id="movies-badge">{{ movies.status }}</span>
+                        <span class="badge-pill">Direct Online Ingestion</span>
                     </div>
 
                     <div class="stats-grid">
                         <div class="stat-item">
-                            <div class="stat-val" id="movies-scanned">{{ movies.scanned_count }}</div>
-                            <div class="stat-label">Movies Scanned</div>
+                            <div class="stat-val">Online</div>
+                            <div class="stat-label">TMDb Ingestion</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-val" id="movies-updated">{{ movies.updated_count }}</div>
-                            <div class="stat-label">Sidecars Written</div>
+                            <div class="stat-val">5.0</div>
+                            <div class="stat-label">MDR-DVD Schema</div>
                         </div>
                     </div>
 
                     <p style="font-size: 0.85rem; color: var(--text-muted);">
-                        Target: <code>/media/movies</code> (dvdid.xml + folder.jpg)
+                        Direct download: <code>dvdid.xml</code> + <code>folder.jpg</code> + <code>poster.jpg</code>
                     </p>
                 </div>
 
                 <div class="card-actions">
-                    <button class="btn" onclick="triggerMediaScan()">
-                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                        Scan Movies Now
-                    </button>
+                    <a href="#direct-movie-search" class="btn">
+                        Search & Download Movies
+                    </a>
                 </div>
             </div>
 
-            <!-- Music Metadata Card -->
+            <!-- Direct Music Engine Card -->
             <div class="card">
                 <div>
                     <div class="card-header">
                         <div>
                             <div class="card-title">Music Metadata Engine</div>
-                            <div class="card-subtitle">ID3v2.3 Standardizer & 500x500 Cover Art</div>
+                            <div class="card-subtitle">Direct MusicBrainz & CAA</div>
                         </div>
-                        <span class="badge-pill" id="music-badge">{{ music.status }}</span>
+                        <span class="badge-pill">Direct Online Ingestion</span>
                     </div>
 
                     <div class="stats-grid">
                         <div class="stat-item">
-                            <div class="stat-val" id="music-scanned">{{ music.scanned_count }}</div>
-                            <div class="stat-label">Tracks Scanned</div>
+                            <div class="stat-val">500x500</div>
+                            <div class="stat-label">WMC Album Art</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-val" id="music-tagged">{{ music.tagged_count }}</div>
-                            <div class="stat-label">Tracks Tagged</div>
+                            <div class="stat-val">ID3v2.3</div>
+                            <div class="stat-label">Standard Tags</div>
                         </div>
                     </div>
 
                     <p style="font-size: 0.85rem; color: var(--text-muted);">
-                        Target: <code>/media/music</code> (WMC ehshell.exe Compatible)
+                        Direct download: <code>Folder.jpg</code> + <code>AlbumArtSmall.jpg</code> + metadata
                     </p>
                 </div>
 
                 <div class="card-actions">
-                    <button class="btn" onclick="triggerMediaScan()">
-                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                        Scan Music Now
-                    </button>
+                    <a href="#direct-music-search" class="btn">
+                        Search & Download Music
+                    </a>
                 </div>
             </div>
         </div>
 
+        <!-- Direct Movie Search & Downloader (No Media Folders Required) -->
+        <div class="section-panel" id="direct-movie-search">
+            <h3 style="font-size: 1.25rem; color: #ffffff; margin-bottom: 6px;">
+                Direct Movie Metadata Downloader (TMDb)
+            </h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Search any movie directly from The Movie Database. Download ready-to-use WMC sidecar bundles (<code>dvdid.xml</code> and <code>folder.jpg</code>) without needing local media files or directories.
+            </p>
+
+            <div class="search-bar">
+                <input type="text" id="movie-query" class="search-input" placeholder="e.g. Inception, The Dark Knight, Casablanca..." onkeydown="if(event.key==='Enter') searchMovies()">
+                <button class="btn" onclick="searchMovies()">Search Movies</button>
+            </div>
+
+            <div id="movie-results" class="results-container"></div>
+        </div>
+
+        <!-- Direct Music Search & Downloader (No Media Folders Required) -->
+        <div class="section-panel" id="direct-music-search">
+            <h3 style="font-size: 1.25rem; color: #ffffff; margin-bottom: 6px;">
+                Direct Music Album Artwork Downloader (MusicBrainz)
+            </h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Search releases directly on MusicBrainz and Cover Art Archive. Downloads standardized 500x500 <code>Folder.jpg</code> and 75x75 thumbnails compatible with Windows Media Center.
+            </p>
+
+            <div class="search-bar">
+                <input type="text" id="music-query" class="search-input" placeholder="e.g. Abbey Road, The Dark Side of the Moon, Random Access Memories..." onkeydown="if(event.key==='Enter') searchMusic()">
+                <input type="text" id="music-artist" class="search-input" style="max-width: 250px;" placeholder="Optional Artist Name" onkeydown="if(event.key==='Enter') searchMusic()">
+                <button class="btn" onclick="searchMusic()">Search Music</button>
+            </div>
+
+            <div id="music-results" class="results-container"></div>
+        </div>
+
         <!-- Client Ingestion Helper Section -->
-        <div class="client-guide">
+        <div class="section-panel">
             <h3 style="font-size: 1.15rem; margin-bottom: 10px; color: #ffffff;">
                 Windows Media Center Ingestion Setup
             </h3>
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">
-                On your Windows Media Center machine, download and schedule <code>sync-wmc.ps1</code> to import <code>guide.mxf</code> into <code>loadmxf.exe</code> and refresh the eHome thumbnail cache:
+                On your Windows Media Center machine, execute <code>sync-wmc.ps1</code> to download <code>guide.mxf</code>, run <code>loadmxf.exe</code>, and refresh the eHome thumbnail cache:
             </p>
             <div class="code-block">
                 <span id="powershell-cmd">powershell -ExecutionPolicy Bypass -File .\client\sync-wmc.ps1 -ServerUrl http://{{ host_ip }}:{{ port }}</span>
                 <button class="copy-btn" onclick="copySnippet()">Copy</button>
             </div>
             <p style="color: var(--text-muted); font-size: 0.8rem;">
-                Tip: Create a scheduled task in Windows Task Scheduler running daily at 04:00 AM with the above command.
+                Tip: Create a daily scheduled task in Windows Task Scheduler at 04:00 AM with the above command.
             </p>
         </div>
     </div>
@@ -402,14 +496,87 @@
             }
         }
 
-        async function triggerMediaScan() {
-            showToast('Triggering movie and music library scan...');
+        async function searchMovies() {
+            const query = document.getElementById('movie-query').value.trim();
+            if (!query) return;
+
+            showToast('Searching TMDb for "' + query + '"...');
+            const resultsDiv = document.getElementById('movie-results');
+            resultsDiv.innerHTML = '<p style="color: var(--text-muted);">Searching TMDb...</p>';
+
             try {
-                const res = await fetch('/api/media/scan', { method: 'POST' });
+                const res = await fetch('/api/metadata/movies/search?query=' + encodeURIComponent(query));
                 const data = await res.json();
-                showToast(data.message || 'Media scan initiated in background!');
+                resultsDiv.innerHTML = '';
+
+                if (!data.results || data.results.length === 0) {
+                    resultsDiv.innerHTML = '<p style="color: var(--text-muted);">No movies found matching your query.</p>';
+                    return;
+                }
+
+                data.results.forEach(m => {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    const posterHtml = m.poster_url 
+                        ? `<img src="${m.poster_url}" style="width: 100%; height: 260px; object-fit: cover; border-radius: 6px; margin-bottom: 10px;" alt="${m.title}">`
+                        : '';
+                    card.innerHTML = `
+                        <div>
+                            ${posterHtml}
+                            <div class="result-title">${m.title}</div>
+                            <div class="result-meta">${m.release_date || 'Unknown Date'}</div>
+                            <div class="result-desc">${m.overview || 'No synopsis available.'}</div>
+                        </div>
+                        <a href="/api/metadata/movies/${m.id}/download" class="btn btn-sm" download>
+                            Download WMC Sidecars (.zip)
+                        </a>
+                    `;
+                    resultsDiv.appendChild(card);
+                });
             } catch (err) {
-                showToast('Failed to trigger media scan: ' + err);
+                resultsDiv.innerHTML = '<p style="color: #ef4444;">Search failed: ' + err + '</p>';
+            }
+        }
+
+        async function searchMusic() {
+            const query = document.getElementById('music-query').value.trim();
+            const artist = document.getElementById('music-artist').value.trim();
+            if (!query) return;
+
+            showToast('Searching MusicBrainz for "' + query + '"...');
+            const resultsDiv = document.getElementById('music-results');
+            resultsDiv.innerHTML = '<p style="color: var(--text-muted);">Searching MusicBrainz...</p>';
+
+            try {
+                let url = '/api/metadata/music/search?query=' + encodeURIComponent(query);
+                if (artist) url += '&artist=' + encodeURIComponent(artist);
+
+                const res = await fetch(url);
+                const data = await res.json();
+                resultsDiv.innerHTML = '';
+
+                if (!data.results || data.results.length === 0) {
+                    resultsDiv.innerHTML = '<p style="color: var(--text-muted);">No releases found matching your query.</p>';
+                    return;
+                }
+
+                data.results.forEach(r => {
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.innerHTML = `
+                        <div>
+                            <div class="result-title">${r.title}</div>
+                            <div class="result-meta">${r.artist} (${r.year || 'Unknown Year'})</div>
+                            <div class="result-desc">Tracks: ${r.track_count || 'N/A'} | Country: ${r.country || 'Global'}</div>
+                        </div>
+                        <a href="/api/metadata/music/${r.mbid}/download" class="btn btn-sm" download>
+                            Download WMC 500x500 Art (.zip)
+                        </a>
+                    `;
+                    resultsDiv.appendChild(card);
+                });
+            } catch (err) {
+                resultsDiv.innerHTML = '<p style="color: #ef4444;">Search failed: ' + err + '</p>';
             }
         }
 
@@ -421,4 +588,3 @@
     </script>
 </body>
 </html>
-

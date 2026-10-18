@@ -5,13 +5,20 @@
 .DESCRIPTION
     Downloads compiled guide.mxf from the OpenMCE Docker container, ingests it
     into Windows Media Center using Microsoft's native loadmxf.exe, and refreshes
-    the eHome cache. Suitable for running via Windows Task Scheduler.
+    the eHome cache. Also supports directly downloading movie metadata and album
+    artwork packages from established sources without local media folder requirements.
 
 .PARAMETER ServerUrl
     The HTTP URL to the OpenMCE backend container, e.g. "http://192.168.1.100:8080".
 
 .PARAMETER WorkingDirectory
     Local directory to store downloaded MXF guide files and logs. Defaults to "%ProgramData%\OpenMCE".
+
+.PARAMETER DownloadMovie
+    Optional: Title or TMDb ID of a movie to directly download WMC metadata sidecars for.
+
+.PARAMETER DownloadAlbum
+    Optional: Title or MBID of a music album to directly download 500x500 WMC artwork for.
 
 .PARAMETER SkipServiceRestart
     If set, skips stopping/starting ehsched and ehrecvr services during ingestion.
@@ -21,6 +28,7 @@
 
 .EXAMPLE
     .\sync-wmc.ps1 -ServerUrl "http://192.168.1.100:8080"
+    .\sync-wmc.ps1 -ServerUrl "http://192.168.1.100:8080" -DownloadMovie "Inception"
 #>
 
 [CmdletBinding()]
@@ -30,6 +38,12 @@ param (
 
     [Parameter(Mandatory = $false)]
     [string]$WorkingDirectory = "$env:ProgramData\OpenMCE",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DownloadMovie = $null,
+
+    [Parameter(Mandatory = $false)]
+    [string]$DownloadAlbum = $null,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipServiceRestart = $false,
@@ -54,7 +68,6 @@ function Log-Message {
         }
     }
 
-    # Write to local log file
     if ($WorkingDirectory) {
         try {
             $logPath = Join-Path $WorkingDirectory "sync-wmc.log"
@@ -63,104 +76,141 @@ function Log-Message {
     }
 }
 
-Log-Message "=== Starting Windows Media Center EPG Sync ==="
+Log-Message "=== Project eHome (OpenMCE) Windows Client Tool ==="
 
 # 1. Check Administrator Privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Log-Message "This script must be executed with elevated Administrator privileges to manage WMC services and loadmxf." "ERROR"
-    exit 1
+    Log-Message "Notice: Running without elevated administrator privileges. Guide ingestion (loadmxf) may require admin rights." "WARN"
 }
 
-# 2. Locate loadmxf.exe
-$ehomeCandidates = @(
-    "$env:SystemRoot\ehome",
-    "$env:SystemRoot\SysWOW64\ehome",
-    "$env:SystemDrive\Windows\ehome"
-)
-
-$loadMxfPath = $null
-$ehomeDir = $null
-foreach ($dir in $ehomeCandidates) {
-    $testPath = Join-Path $dir "loadmxf.exe"
-    if (Test-Path $testPath) {
-        $loadMxfPath = $testPath
-        $ehomeDir = $dir
-        break
-    }
-}
-
-if (-not $loadMxfPath) {
-    Log-Message "Could not locate loadmxf.exe. Is Windows Media Center installed on this machine?" "ERROR"
-    exit 2
-}
-Log-Message "Located WMC Ingestion Utility: $loadMxfPath"
-
-# 3. Prepare Working Directory
+# 2. Prepare Working Directory
 if (-not (Test-Path $WorkingDirectory)) {
     New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 }
-$mxfLocalPath = Join-Path $WorkingDirectory "guide.mxf"
 
-# 4. Download guide.mxf from OpenMCE Container
-$mxfEndpoint = "$($ServerUrl.TrimEnd('/'))/api/guide.mxf"
-Log-Message "Downloading guide payload from: $mxfEndpoint"
+$webClient = New-Object System.Net.WebClient
+$webClient.Headers.Add("User-Agent", "OpenMCE-WMC-Client/1.0")
 
-try {
-    # Use WebClient for maximum compatibility across older Windows / PowerShell 2.0+
-    $webClient = New-Object System.Net.WebClient
-    $webClient.Headers.Add("User-Agent", "OpenMCE-WMC-Client/1.0")
-    $webClient.DownloadFile($mxfEndpoint, $mxfLocalPath)
-} catch {
-    Log-Message "Failed to download guide.mxf from $mxfEndpoint : $_" "ERROR"
-    exit 3
-}
-
-# Validate downloaded file
-if (-not (Test-Path $mxfLocalPath) -or ((Get-Item $mxfLocalPath).Length -lt 100)) {
-    Log-Message "Downloaded guide.mxf is missing or invalid (size < 100 bytes)." "ERROR"
-    exit 4
-}
-$fileSizeKb = [math]::Round((Get-Item $mxfLocalPath).Length / 1024, 2)
-Log-Message "Successfully downloaded guide.mxf ($fileSizeKb KB)." "SUCCESS"
-
-# 5. Stop WMC Background Services (if not skipped)
-if (-not $SkipServiceRestart) {
-    Log-Message "Temporarily halting WMC background scheduler & receiver services..."
-    Stop-Service -Name "ehsched" -Force -ErrorAction SilentlyContinue
-    Stop-Service -Name "ehrecvr" -Force -ErrorAction SilentlyContinue
-}
-
-# 6. Run loadmxf.exe to ingest the MXF database
-Log-Message "Executing: & `"$loadMxfPath`" -i `"$mxfLocalPath`""
-try {
-    $proc = Start-Process -FilePath $loadMxfPath -ArgumentList "-i `"$mxfLocalPath`"" -Wait -PassThru -NoNewWindow
-    if ($proc.ExitCode -eq 0) {
-        Log-Message "loadmxf.exe completed successfully (ExitCode: 0)." "SUCCESS"
-    } else {
-        Log-Message "loadmxf.exe exited with non-zero exit code: $($proc.ExitCode)" "WARN"
-    }
-} catch {
-    Log-Message "Error executing loadmxf.exe: $_" "ERROR"
-}
-
-# 7. Restart WMC Background Services
-if (-not $SkipServiceRestart) {
-    Log-Message "Restarting WMC services..."
-    Start-Service -Name "ehsched" -ErrorAction SilentlyContinue
-    Start-Service -Name "ehrecvr" -ErrorAction SilentlyContinue
-}
-
-# 8. Refresh eHome Thumbnail / Re-index Cache
-$ehPrivJob = Join-Path $ehomeDir "ehPrivJob.exe"
-if (Test-Path $ehPrivJob) {
-    Log-Message "Triggering eHome index and metadata refresh via ehPrivJob..."
+# 3. Direct Movie Metadata Download (Optional)
+if ($DownloadMovie) {
+    Log-Message "Querying backend for movie metadata: '$DownloadMovie'..."
+    $movieZipPath = Join-Path $WorkingDirectory "movie_metadata.zip"
+    $movieEndpoint = "$($ServerUrl.TrimEnd('/'))/api/metadata/movies/$([System.Uri]::EscapeDataString($DownloadMovie))/download"
     try {
-        Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-        Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-    } catch {}
+        $webClient.DownloadFile($movieEndpoint, $movieZipPath)
+        Log-Message "Downloaded movie metadata bundle to: $movieZipPath" "SUCCESS"
+
+        # Expand archive
+        $movieOutDir = Join-Path $WorkingDirectory "Movies\$($DownloadMovie -replace '[^\w\s]', '')"
+        if (-not (Test-Path $movieOutDir)) { New-Item -ItemType Directory -Path $movieOutDir -Force | Out-Null }
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($movieZipPath, $movieOutDir)
+        Log-Message "Extracted dvdid.xml and folder.jpg to $movieOutDir" "SUCCESS"
+
+        # Also copy to WMC DvdInfoCache if present
+        $wmcDvdCache = "$env:LOCALAPPDATA\Microsoft\eHome\DvdInfoCache"
+        if (Test-Path $wmcDvdCache) {
+            Get-ChildItem -Path $movieOutDir -Filter "*.xml" | ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination $wmcDvdCache -Force
+                Log-Message "Copied metadata to WMC DvdInfoCache: $($_.Name)" "SUCCESS"
+            }
+        }
+    } catch {
+        Log-Message "Failed downloading movie metadata: $_" "ERROR"
+    }
 }
 
-Log-Message "=== EPG Sync Complete! TV Guide is now updated in Windows Media Center. ===" "SUCCESS"
-exit 0
+# 4. Direct Music Artwork Download (Optional)
+if ($DownloadAlbum) {
+    Log-Message "Querying backend for album artwork: '$DownloadAlbum'..."
+    $albumZipPath = Join-Path $WorkingDirectory "music_art.zip"
+    $musicEndpoint = "$($ServerUrl.TrimEnd('/'))/api/metadata/music/$([System.Uri]::EscapeDataString($DownloadAlbum))/download"
+    try {
+        $webClient.DownloadFile($musicEndpoint, $albumZipPath)
+        Log-Message "Downloaded music artwork bundle to: $albumZipPath" "SUCCESS"
 
+        # Expand archive
+        $albumOutDir = Join-Path $WorkingDirectory "Music\$($DownloadAlbum -replace '[^\w\s]', '')"
+        if (-not (Test-Path $albumOutDir)) { New-Item -ItemType Directory -Path $albumOutDir -Force | Out-Null }
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($albumZipPath, $albumOutDir)
+        Log-Message "Extracted 500x500 Folder.jpg and AlbumArtSmall.jpg to $albumOutDir" "SUCCESS"
+
+        # Also copy to WMC art_cache if present
+        $wmcArtCache = "$env:LOCALAPPDATA\Microsoft\eHome\art_cache"
+        if (Test-Path $wmcArtCache) {
+            Copy-Item -Path (Join-Path $albumOutDir "Folder.jpg") -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
+            Log-Message "Copied 500x500 artwork into WMC art_cache." "SUCCESS"
+        }
+    } catch {
+        Log-Message "Failed downloading music artwork: $_" "ERROR"
+    }
+}
+
+# 5. Guide Ingestion Routine (Skip if running specific media downloads only)
+if (-not $DownloadMovie -and -not $DownloadAlbum) {
+    $ehomeCandidates = @(
+        "$env:SystemRoot\ehome",
+        "$env:SystemRoot\SysWOW64\ehome",
+        "$env:SystemDrive\Windows\ehome"
+    )
+
+    $loadMxfPath = $null
+    $ehomeDir = $null
+    foreach ($dir in $ehomeCandidates) {
+        $testPath = Join-Path $dir "loadmxf.exe"
+        if (Test-Path $testPath) {
+            $loadMxfPath = $testPath
+            $ehomeDir = $dir
+            break
+        }
+    }
+
+    if (-not $loadMxfPath) {
+        Log-Message "Could not locate loadmxf.exe. Is Windows Media Center installed?" "WARN"
+    } else {
+        $mxfLocalPath = Join-Path $WorkingDirectory "guide.mxf"
+        $mxfEndpoint = "$($ServerUrl.TrimEnd('/'))/api/guide.mxf"
+        Log-Message "Downloading guide payload from: $mxfEndpoint"
+
+        try {
+            $webClient.DownloadFile($mxfEndpoint, $mxfLocalPath)
+        } catch {
+            Log-Message "Failed to download guide.mxf from $mxfEndpoint : $_" "ERROR"
+            exit 3
+        }
+
+        if (-not $SkipServiceRestart) {
+            Log-Message "Halting WMC background scheduler & receiver services..."
+            Stop-Service -Name "ehsched" -Force -ErrorAction SilentlyContinue
+            Stop-Service -Name "ehrecvr" -Force -ErrorAction SilentlyContinue
+        }
+
+        Log-Message "Executing loadmxf.exe on guide payload..."
+        try {
+            $proc = Start-Process -FilePath $loadMxfPath -ArgumentList "-i `"$mxfLocalPath`"" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -eq 0) {
+                Log-Message "loadmxf.exe completed successfully (ExitCode: 0)." "SUCCESS"
+            } else {
+                Log-Message "loadmxf.exe exited with non-zero exit code: $($proc.ExitCode)" "WARN"
+            }
+        } catch {
+            Log-Message "Error executing loadmxf.exe: $_" "ERROR"
+        }
+
+        if (-not $SkipServiceRestart) {
+            Log-Message "Restarting WMC services..."
+            Start-Service -Name "ehsched" -ErrorAction SilentlyContinue
+            Start-Service -Name "ehrecvr" -ErrorAction SilentlyContinue
+        }
+
+        $ehPrivJob = Join-Path $ehomeDir "ehPrivJob.exe"
+        if (Test-Path $ehPrivJob) {
+            Log-Message "Refreshing eHome caches via ehPrivJob..."
+            Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+            Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Log-Message "=== Task Complete! ===" "SUCCESS"
+exit 0

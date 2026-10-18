@@ -19,20 +19,20 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
    - Enables native Windows Media Center "Record Series" DVR scheduling.
    - Hosted at `http://<docker-host>:8080/api/guide.mxf`.
 
-2. **Movie Metadata Engine**:
-   - Scans mapped movie shares (`/media/movies`).
-   - Automatically queries The Movie Database (TMDb) for synopsis, release date, director, cast, studio, and MPAA rating.
-   - Writes legacy `dvdid.xml` (5.0 MDR-DVD schema) and downloads front cover artwork as `folder.jpg` and `poster.jpg`.
+2. **Direct Movie Metadata Engine (TMDb)**:
+   - Queries The Movie Database (TMDb v3) directly without requiring local media folders.
+   - Compiles legacy `dvdid.xml` (5.0 MDR-DVD schema) and downloads front cover artwork (`folder.jpg`, `poster.jpg`).
+   - Generates downloadable ZIP packages for direct injection into WMC's `DvdInfoCache` or local directories.
 
-3. **Music Metadata Engine**:
-   - Recursively scans audio shares (`/media/music`).
-   - Queries MusicBrainz WS/2 and Cover Art Archive.
+3. **Direct Music Metadata Engine (MusicBrainz & CAA)**:
+   - Queries MusicBrainz WS/2 and Cover Art Archive directly without requiring local media folders.
    - Standardizes tags strictly to **ID3v2.3** (UTF-16 encoding), resolving WMC/Windows Media Player indexing crashes.
-   - Downscales and embeds **500x500** front cover artwork (`APIC` frame) and outputs sidecar `Folder.jpg` / `AlbumArtSmall.jpg`.
+   - Downloads and resizes front cover art to strict **500x500** (`Folder.jpg`) and **75x75** (`AlbumArtSmall.jpg`) WMC standards.
+   - Generates downloadable ZIP packages for direct injection into WMC's `art_cache` or local directories.
 
 4. **Self-Contained Dashboard & Scheduler**:
-   - Built-in APScheduler running configurable cron jobs for guide synchronization and library scans.
-   - Responsive web dashboard providing status cards, channel statistics, and one-click manual sync triggers.
+   - Built-in APScheduler running configurable cron jobs for guide synchronization.
+   - Interactive web dashboard with real-time direct search and 1-click download tools for movies and music.
    - Native container health check endpoint (`GET /health`).
 
 5. **Client Automation Helper**:
@@ -230,7 +230,13 @@ On your Windows Media Center PC (running Windows 7, 8.1, 10, or 11 with the WMC 
 - `GET /api/status`: Detailed system metrics, configured paths, channel counts, and job schedules.
 - `POST /api/epg/sync`: Manually triggers immediate EPG download and MXF generation.
 - `POST /api/media/scan`: Manually triggers background scan for movies and music shares.
-- `GET /`: Management web dashboard.
+- `GET /api/metadata/movies/search`: Directly search TMDb movies (`?query=...&year=...`).
+- `GET /api/metadata/movies/{id}`: Directly retrieve full TMDb movie details.
+- `GET /api/metadata/movies/{id}/download`: Download complete WMC movie package (.zip) with `dvdid.xml` and `folder.jpg`.
+- `GET /api/metadata/music/search`: Directly search MusicBrainz album releases (`?query=...&artist=...`).
+- `GET /api/metadata/music/{mbid}`: Directly retrieve release details and track list.
+- `GET /api/metadata/music/{mbid}/download`: Download complete WMC music package (.zip) with 500x500 `Folder.jpg` and `AlbumArtSmall.jpg`.
+- `GET /`: Management web dashboard with direct interactive metadata search & download tool.
 
 ---
 
