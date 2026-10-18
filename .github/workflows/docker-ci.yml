@@ -127,11 +127,12 @@ jobs:
       - name: Validate EPG guide.mxf endpoint
         run: |
           echo "Testing /api/guide.mxf payload generation..."
-          RESPONSE=$(curl -sSf http://localhost:8080/api/guide.mxf)
+          curl -sSf http://localhost:8080/api/guide.mxf -o guide.mxf
           # Verify XML declaration and root MXF element
-          echo "$RESPONSE" | head -n 10
-          echo "$RESPONSE" | grep -q '<MXF'
-          echo "$RESPONSE" | grep -q 'McStore.dll'
+          head -n 15 guide.mxf
+          grep -q '<MXF' guide.mxf
+          grep -q 'mcepg' guide.mxf
+          grep -q 'mcstore' guide.mxf
           echo "MXF endpoint verification succeeded!"
 
       - name: Validate System Status endpoint
