@@ -21,6 +21,10 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    ports:
+      - "8080:8080"
+      - "53:53/udp"
+      - "53:53/tcp"
 
   # -------------------------------------------------------------
   # MediaCenterServicePack Container
