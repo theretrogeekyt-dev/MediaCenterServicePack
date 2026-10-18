@@ -252,7 +252,21 @@ Access the dashboard at `http://<docker-host>:8080/`.
 
 On your Windows Media Center PC (running Windows 7, 8.1, 10, or 11 with the WMC community package):
 
-### Option 1: Zero-Config DNS Auto-Discovery (Recommended)
+### Option 1: 1-Click Setup (Zero Terminal Required - Recommended)
+
+You never need to open a terminal, command prompt, or PowerShell script:
+
+1. Open your browser to `http://<server-ip>:8080/` and navigate to the **WMC Client Setup** tab.
+2. Click **Download 1-Click Setup (.bat)** (or download directly from `http://<server-ip>:8080/api/client/setup.bat`).
+3. Right-click `setup-wmc.bat` and select **Run as administrator**.
+4. **Done!** The installer automatically:
+   - Installs background tasks that run daily at 04:00 AM and at logon.
+   - Automatically synchronizes TV Guide (`loadmxf.exe`).
+   - Automatically scans your Music folder and downloads 500x500 `Folder.jpg` and `AlbumArtSmall.jpg` covers.
+   - Automatically scans your Videos folder and downloads `dvdid.xml` movie metadata.
+   - Places a **"Sync Windows Media Center"** shortcut on your desktop for 1-click silent updates anytime with no terminal windows!
+
+### Option 2: Zero-Config DNS Auto-Discovery
 
 1. Set the Primary DNS server on your WMC client machine or network adapter to the IP of your MediaCenterServicePack server (e.g. `192.168.1.100`).
    ```powershell
@@ -260,22 +274,17 @@ On your Windows Media Center PC (running Windows 7, 8.1, 10, or 11 with the WMC 
    Get-NetAdapter | Where-Object Status -eq 'Up' | Set-DnsClientServerAddress -ServerAddresses ("192.168.1.100")
    ```
 2. Copy `client/sync-wmc.ps1` to your WMC machine (e.g., `C:\Scripts\sync-wmc.ps1`).
-3. Run `sync-wmc.ps1` with zero arguments:
+3. Run `sync-wmc.ps1 -All` to synchronize guide, music, and movies:
    ```powershell
-   powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1
+   powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -All
    ```
-   The script automatically probes `mediacenter.local:8080`, `wmc.local:8080`, and the adapter's DNS server, downloads `guide.mxf`, and imports it into Media Center.
-4. Schedule daily automatic ingestion:
-   - **Program**: `powershell.exe`
-   - **Arguments**: `-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Scripts\sync-wmc.ps1 -Quiet`
-   - **Run with highest privileges**: Enabled (required for `loadmxf.exe`).
 
-### Option 2: Direct HTTP URL Execution
+### Option 3: Direct HTTP URL Execution
 
 If you prefer not to change DNS settings on the client machine, pass `-ServerUrl` explicitly:
 
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -All
 ```
 
 ### Direct Movie & Music Downloads via Client Script
@@ -316,8 +325,9 @@ powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ResetMusic
 - `GET /api/metadata/movies/{id}/download`: Download complete WMC movie package (.zip) with `dvdid.xml` and `folder.jpg`.
 - `GET /api/metadata/music/search`: Directly search MusicBrainz album releases (`?query=...&artist=...`).
 - `GET /api/metadata/music/{mbid}`: Directly retrieve release details and track list.
-- `GET /api/metadata/music/{mbid}/download`: Download complete WMC music package (.zip) with 500x500 `Folder.jpg` and `AlbumArtSmall.jpg`.
-- `GET /`: Modern Web Suite dashboard featuring tabbed navigation: TV Guide & Lineup Viewer, Movie Studio, Music Studio, Dynamic WMC Client Setup (with DNS auto-discovery instructions), and System Diagnostics.
+- `GET /api/client/setup.bat`: Serves pre-configured 1-click Windows setup batch installer.
+- `GET /api/client/sync-wmc.ps1`: Serves latest Windows Media Center PowerShell sync script.
+- `GET /`: Modern Web Suite dashboard featuring tabbed navigation: TV Guide & Lineup Viewer, Movie Studio, Music Studio, Dynamic WMC Client Setup (with 1-click setup & DNS auto-discovery), and System Diagnostics.
 
 ---
 
@@ -330,8 +340,9 @@ pip install -r requirements.txt pytest pytest-asyncio
 python -m pytest -v
 ```
 
-All 31 tests validate:
-- DNS auto-discovery server, query interception (`A` and `AAAA` records), upstream forwarding, and native WMC HTTP interception middleware.
+All 33 tests validate:
+- 1-Click Windows client setup script generator (`setup.bat`), silent task runner, and script delivery.
+- DNS auto-discovery server, query interception (`A` and `AAAA` records), upstream forwarding, and native WMC HTTP interception middleware (TV Guide, Movies, and Music).
 - Schedules Direct API token authentication, SHA-1 password hashing, and auto lineup mapping.
 - Microsoft MXF schema compliance (`McStore.dll`, `Providers`, `With`, `ScheduleEntries`, `Lineup`).
 - `dvdid.xml` 5.0 MDR-DVD schema validation and XML preview endpoint.

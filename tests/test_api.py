@@ -127,3 +127,29 @@ async def test_movie_dvdid_preview():
         assert resp.status_code == 200
         assert "application/xml" in resp.headers.get("content-type", "")
         assert b"<DvdId>" in resp.content or b"<MDR-DVD>" in resp.content
+
+
+@pytest.mark.asyncio
+async def test_client_setup_download():
+    """Verify GET /api/client/setup.bat delivers configured batch file."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/client/setup.bat")
+        assert resp.status_code == 200
+        assert "setup-wmc.bat" in resp.headers.get("content-disposition", "")
+        assert b"MediaCenterServicePack" in resp.content
+        assert b"sync-wmc.ps1" in resp.content
+        assert b"__SERVER_URL__" not in resp.content  # Verifies replacement happened
+
+
+@pytest.mark.asyncio
+async def test_client_sync_script_download():
+    """Verify GET /api/client/sync-wmc.ps1 delivers PowerShell sync script."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/client/sync-wmc.ps1")
+        assert resp.status_code == 200
+        assert "sync-wmc.ps1" in resp.headers.get("content-disposition", "")
+        assert b"MediaCenterServicePack" in resp.content
+        assert b"loadmxf" in resp.content
+

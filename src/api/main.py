@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -14,6 +14,7 @@ from src import __version__
 from src.config import settings
 from src.dns import dns_service, DNSStats
 from src.epg.pipeline import EPGPipeline, EPGStats, generate_fallback_epg
+from src.metadata.dvdid_generator import generate_dvd_id
 from src.metadata.movie_engine import MovieEngine
 from src.metadata.music_engine import MusicEngine
 from src.scheduler.tasks import scheduler_service
@@ -78,7 +79,7 @@ async def wmc_domain_interception_middleware(request: Request, call_next):
     host = request.headers.get("host", "").lower().split(":")[0]
     path = request.url.path
 
-    # Intercept native TV Guide download calls to *.tvdownload.microsoft.com
+    # 1. Intercept native TV Guide download calls to *.tvdownload.microsoft.com
     if "tvdownload.microsoft.com" in host and not path.startswith("/api/") and not path.startswith("/health"):
         logger.info(f"Intercepted native WMC guide request from host '{host}' at '{path}'. Serving guide.mxf...")
         mxf_file = settings.get_existing_guide_mxf()
@@ -95,6 +96,45 @@ async def wmc_domain_interception_middleware(request: Request, call_next):
                 media_type="application/xml",
                 headers={"Content-Disposition": 'attachment; filename="guide.mxf"'},
             )
+
+    # 2. Intercept native Movie & DVD metadata calls (dvd.windowsmedia.com, metaservices.windowsmedia.com)
+    if ("windowsmedia.com" in host or "metaservices" in host) and ("dvd" in host or "dvd" in path):
+        query = request.query_params.get("title") or request.query_params.get("query") or request.query_params.get("dvdid") or "Movie"
+        logger.info(f"Intercepted native WMC Movie/DVD metadata query for '{query}' from host '{host}'")
+        try:
+            results = await movie_engine.search(query=query, limit=1)
+            if results:
+                dvd_xml = await movie_engine.get_dvdid_xml(results[0]["id"])
+            else:
+                dvd_xml = movie_engine.generator.build_xml({
+                    "title": query,
+                    "dvd_id": generate_dvd_id(query, ""),
+                    "synopsis": f"Title: {query}",
+                })
+            if dvd_xml:
+                return Response(content=dvd_xml, media_type="application/xml")
+        except Exception as e:
+            logger.debug(f"Error serving intercepted DVD metadata: {e}")
+
+    # 3. Intercept native Music CD / Album info calls (fai.music.metaservices.microsoft.com)
+    if "music.metaservices" in host or ("metaservices" in host and "music" in (host + path)):
+        query = request.query_params.get("album") or request.query_params.get("query") or request.query_params.get("toc") or "Album"
+        artist = request.query_params.get("artist")
+        logger.info(f"Intercepted native WMC Music metadata query for '{query}' from host '{host}'")
+        try:
+            results = await music_engine.search(query=query, artist=artist, limit=1)
+            if results:
+                details = await music_engine.get_album_metadata(results[0]["mbid"])
+            else:
+                details = {
+                    "title": query,
+                    "artist": artist or "Unknown Artist",
+                    "tracks": [],
+                }
+            if details:
+                return JSONResponse(content=details)
+        except Exception as e:
+            logger.debug(f"Error serving intercepted Music metadata: {e}")
 
     return await call_next(request)
 
@@ -141,6 +181,61 @@ async def get_dns_status():
     """Return DNS auto-discovery status and query statistics."""
     return DNSStats.to_dict()
 
+
+
+def get_client_file(filename: str) -> Optional[Path]:
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "client" / filename,
+        Path("/app/client") / filename,
+        Path("client") / filename,
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+@app.get("/api/client/setup.bat")
+async def download_setup_bat(request: Request):
+    """
+    Download pre-configured 1-click Windows setup batch script.
+    Substitutes the detected server host IP so client auto-discovers immediately.
+    """
+    bat_file = get_client_file("setup-wmc.bat")
+    if not bat_file:
+        raise HTTPException(status_code=404, detail="setup-wmc.bat not found.")
+
+    content = bat_file.read_text(encoding="utf-8", errors="ignore")
+    server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
+    server_port = settings.PORT
+    server_url = f"http://{server_ip}:{server_port}"
+    content = content.replace("__SERVER_URL__", server_url)
+
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="application/x-bat",
+        headers={
+            "Content-Disposition": 'attachment; filename="setup-wmc.bat"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/api/client/sync-wmc.ps1")
+async def download_sync_script():
+    """Download the client PowerShell automation script."""
+    ps1_file = get_client_file("sync-wmc.ps1")
+    if not ps1_file:
+        raise HTTPException(status_code=404, detail="sync-wmc.ps1 not found.")
+    return FileResponse(
+        path=str(ps1_file),
+        media_type="text/plain",
+        filename="sync-wmc.ps1",
+        headers={
+            "Content-Disposition": 'attachment; filename="sync-wmc.ps1"',
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 @app.get("/api/guide.mxf")

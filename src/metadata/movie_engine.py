@@ -36,10 +36,11 @@ class MovieEngine:
         """
         # Determine if input is integer ID or title search string
         movie_meta = None
-        if movie_id_or_title.isdigit():
-            movie_meta = await self.tmdb_client.get_movie_details(int(movie_id_or_title))
+        id_str = str(movie_id_or_title)
+        if id_str.isdigit():
+            movie_meta = await self.tmdb_client.get_movie_details(int(id_str))
         else:
-            movie_meta = await self.tmdb_client.search_movie(movie_id_or_title, year)
+            movie_meta = await self.tmdb_client.search_movie(id_str, year)
 
         if not movie_meta:
             return None

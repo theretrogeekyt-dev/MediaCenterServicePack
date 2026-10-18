@@ -38,9 +38,10 @@ WORKDIR /app
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application source code and entrypoint
+# Copy application source code, client tools, and entrypoint
 COPY src/ /app/src/
 COPY src/ /opt/src/
+COPY client/ /app/client/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh && \

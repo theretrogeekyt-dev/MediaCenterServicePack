@@ -207,3 +207,18 @@ async def test_wmc_http_middleware_interception():
         resp_normal = await client.get("/epg/tvguide", headers={"Host": "mediacenter-server:8080"})
         assert resp_normal.status_code == 404
 
+        # 3. Native Movie & DVD metadata request via intercepted dvd.windowsmedia.com
+        headers_movie = {"Host": "dvd.windowsmedia.com"}
+        resp_movie = await client.get("/dvd/lookup?title=Inception", headers=headers_movie)
+        assert resp_movie.status_code == 200
+        assert "application/xml" in resp_movie.headers.get("content-type", "")
+        assert b"<MDR-DVD>" in resp_movie.content or b"<DvdId>" in resp_movie.content
+
+        # 4. Native Music album metadata request via intercepted fai.music.metaservices.microsoft.com
+        headers_music = {"Host": "fai.music.metaservices.microsoft.com"}
+        resp_music = await client.get("/cd/query?album=Thriller&artist=Michael+Jackson", headers=headers_music)
+        assert resp_music.status_code == 200
+        assert "application/json" in resp_music.headers.get("content-type", "")
+        data = resp_music.json()
+        assert "title" in data or "mbid" in data
+

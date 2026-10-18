@@ -51,6 +51,9 @@ param (
     [string]$WorkingDirectory = "$env:ProgramData\MediaCenterServicePack",
 
     [Parameter(Mandatory = $false)]
+    [switch]$All = $false,
+
+    [Parameter(Mandatory = $false)]
     [string]$DownloadMovie = $null,
 
     [Parameter(Mandatory = $false)]
@@ -60,10 +63,19 @@ param (
     [string]$MusicFolder = $null,
 
     [Parameter(Mandatory = $false)]
+    [string]$MovieFolder = $null,
+
+    [Parameter(Mandatory = $false)]
     [switch]$RefreshMusic = $false,
 
     [Parameter(Mandatory = $false)]
     [switch]$ResetMusicDatabase = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$InstallTask = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$UninstallTask = $false,
 
     [Parameter(Mandatory = $false)]
     [string]$ApiKey = $null,
@@ -205,6 +217,55 @@ foreach ($dir in $ehomeCandidates) {
     if ($loadMxfPath -or $ehPrivJob) { break }
 }
 
+# Handle Task Installation
+if ($InstallTask) {
+    Log-Message "Installing automated Windows Media Center background tasks..."
+    $targetDir = "$env:ProgramData\MediaCenterServicePack"
+    if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
+
+    $installedScript = Join-Path $targetDir "sync-wmc.ps1"
+    Copy-Item -Path $PSCommandPath -Destination $installedScript -Force
+
+    # Create run-hidden.vbs to launch PowerShell without any visible console window
+    $vbsPath = Join-Path $targetDir "run-hidden.vbs"
+    $vbsCode = "Set WshShell = CreateObject(""WScript.Shell"")`r`nWshShell.Run ""powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """"$installedScript"""" -All -Quiet"", 0, False`r`n"
+    [System.IO.File]::WriteAllText($vbsPath, $vbsCode, [System.Text.Encoding]::ASCII)
+
+    # Register Daily Scheduled Task
+    Start-Process -FilePath "schtasks.exe" -ArgumentList "/create /tn `"MediaCenterServicePack_AutoSync`" /tr `"wscript.exe `\`"$vbsPath`\`"`" /sc daily /st 04:00 /rl HIGHEST /f" -Wait -NoNewWindow
+    Start-Process -FilePath "schtasks.exe" -ArgumentList "/create /tn `"MediaCenterServicePack_LogonSync`" /tr `"wscript.exe `\`"$vbsPath`\`"`" /sc onlogon /rl HIGHEST /f" -Wait -NoNewWindow
+
+    # Create Desktop Shortcut
+    try {
+        $desktop = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktop "Sync Windows Media Center.lnk"
+        $wsh = New-Object -ComObject WScript.Shell
+        $sc = $wsh.CreateShortcut($shortcutPath)
+        $sc.TargetPath = "wscript.exe"
+        $sc.Arguments = "`"$vbsPath`""
+        $sc.Description = "Update TV Guide, Music Artwork, and Movie Metadata for Windows Media Center"
+        if ($ehomeDir -and (Test-Path (Join-Path $ehomeDir "ehshell.exe"))) {
+            $sc.IconLocation = (Join-Path $ehomeDir "ehshell.exe") + ",0"
+        }
+        $sc.Save()
+        Log-Message "Created desktop shortcut: $shortcutPath" "SUCCESS"
+    } catch {}
+
+    Log-Message "MediaCenterServicePack automated background tasks installed successfully!" "SUCCESS"
+    exit 0
+}
+
+if ($UninstallTask) {
+    Log-Message "Removing MediaCenterServicePack background tasks..."
+    Start-Process -FilePath "schtasks.exe" -ArgumentList "/delete /tn `"MediaCenterServicePack_AutoSync`" /f" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    Start-Process -FilePath "schtasks.exe" -ArgumentList "/delete /tn `"MediaCenterServicePack_LogonSync`" /f" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktop "Sync Windows Media Center.lnk"
+    if (Test-Path $shortcutPath) { Remove-Item $shortcutPath -Force -ErrorAction SilentlyContinue }
+    Log-Message "Uninstalled tasks and shortcuts." "SUCCESS"
+    exit 0
+}
+
 # 3. Direct Movie Metadata Download (Optional)
 if ($DownloadMovie) {
     Log-Message "Querying backend for movie metadata: '$DownloadMovie'..."
@@ -261,6 +322,21 @@ if ($DownloadAlbum) {
         }
     } catch {
         Log-Message "Failed downloading music artwork: $_" "ERROR"
+    }
+}
+
+# Handle -All Default Folders
+if ($All) {
+    Log-Message "Mode: Full Automated Ingestion (-All). Processing TV Guide, Music Library, and Movie Library..."
+    if (-not $MusicFolder) {
+        $myMusic = [Environment]::GetFolderPath("MyMusic")
+        if ($myMusic -and (Test-Path $myMusic)) { $MusicFolder = $myMusic }
+        elseif (Test-Path "$env:USERPROFILE\Music") { $MusicFolder = "$env:USERPROFILE\Music" }
+    }
+    if (-not $MovieFolder) {
+        $myVideos = [Environment]::GetFolderPath("MyVideos")
+        if ($myVideos -and (Test-Path $myVideos)) { $MovieFolder = $myVideos }
+        elseif (Test-Path "$env:USERPROFILE\Videos") { $MovieFolder = "$env:USERPROFILE\Videos" }
     }
 }
 
@@ -325,7 +401,66 @@ if ($MusicFolder) {
     }
 }
 
-# 6. Refresh / Reset Music Library & Database (Optional)
+# 6. Batch Movie Folder Enrichment (Optional or with -All)
+if ($MovieFolder) {
+    if (-not (Test-Path $MovieFolder)) {
+        Log-Message "Specified MovieFolder does not exist: $MovieFolder" "ERROR"
+    } else {
+        Log-Message "Scanning MovieFolder for movies missing metadata: $MovieFolder"
+        $subDirs = Get-ChildItem -Path $MovieFolder -Directory -Recurse -ErrorAction SilentlyContinue
+        $movieDirs = @()
+        foreach ($d in $subDirs) {
+            $hasVideo = Get-ChildItem -Path $d.FullName -Include "*.mkv","*.mp4","*.avi","*.m2ts","*.iso","*.vob","*.wmv" -File -Depth 1 -ErrorAction SilentlyContinue
+            if ($hasVideo) { $movieDirs += $d }
+        }
+        $rootVideo = Get-ChildItem -Path $MovieFolder -Include "*.mkv","*.mp4","*.avi","*.m2ts","*.iso","*.vob","*.wmv" -File -Depth 1 -ErrorAction SilentlyContinue
+        if ($rootVideo) { $movieDirs += (Get-Item $MovieFolder) }
+
+        Log-Message "Found $($movieDirs.Count) movie directories to inspect."
+        $wmcDvdCache = "$env:LOCALAPPDATA\Microsoft\eHome\DvdInfoCache"
+        if (-not (Test-Path $wmcDvdCache)) { New-Item -ItemType Directory -Path $wmcDvdCache -Force | Out-Null }
+
+        $movieDownloadedCount = 0
+        foreach ($dir in $movieDirs) {
+            $dvdidXml = Join-Path $dir.FullName "dvdid.xml"
+            $folderJpg = Join-Path $dir.FullName "folder.jpg"
+            if (-not (Test-Path $dvdidXml) -or -not (Test-Path $folderJpg)) {
+                $cleanName = $dir.Name -replace '^\d+\s*[-.]\s*', '' -replace '\(\d{4}\)', '' -replace '\[.*?\]', ''
+                $cleanName = $cleanName.Trim()
+                if ($cleanName) {
+                    Log-Message "Fetching movie metadata for: '$cleanName'..."
+                    try {
+                        $tmpZip = Join-Path $WorkingDirectory "temp_movie.zip"
+                        $url = "$($ServerUrl.TrimEnd('/'))/api/metadata/movies/$([System.Uri]::EscapeDataString($cleanName))/download"
+                        $webClient.DownloadFile($url, $tmpZip)
+
+                        $archive = [System.IO.Compression.ZipFile]::OpenRead($tmpZip)
+                        foreach ($entry in $archive.Entries) {
+                            $targetFile = Join-Path $dir.FullName $entry.Name
+                            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $targetFile, $true)
+                            if ($entry.Name.EndsWith(".xml", [System.StringComparison]::OrdinalIgnoreCase)) {
+                                Copy-Item -Path $targetFile -Destination $wmcDvdCache -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                        $archive.Dispose()
+                        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+                        $movieDownloadedCount++
+                        Log-Message "Enriched movie metadata in: $($dir.FullName)" "SUCCESS"
+                    } catch {
+                        Log-Message "Could not find movie metadata for '$cleanName': $_" "WARN"
+                    }
+                }
+            } else {
+                Copy-Item -Path $dvdidXml -Destination $wmcDvdCache -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if ($movieDownloadedCount -gt 0) {
+            Log-Message "Enriched $movieDownloadedCount movies with WMC metadata." "SUCCESS"
+        }
+    }
+}
+
+# 7. Refresh / Reset Music Library & Database (Optional)
 if ($ResetMusicDatabase) {
     Log-Message "Resetting Windows Media Player & Media Center music library database..." "WARN"
     Stop-Service -Name "wmpnetwk" -Force -ErrorAction SilentlyContinue
@@ -359,9 +494,9 @@ if ($RefreshMusic) {
     }
 }
 
-# 7. Guide Ingestion Routine (Skip if running specific media/music operations only)
-$hasMediaOp = $DownloadMovie -or $DownloadAlbum -or $MusicFolder -or $RefreshMusic -or $ResetMusicDatabase
-if (-not $hasMediaOp -or $SyncNow) {
+# 8. Guide Ingestion Routine
+$hasMediaOp = ($DownloadMovie -or $DownloadAlbum -or ($MusicFolder -and -not $All) -or ($MovieFolder -and -not $All) -or $RefreshMusic -or $ResetMusicDatabase) -and -not $All
+if (-not $hasMediaOp -or $SyncNow -or $All) {
     if (-not $loadMxfPath) {
         Log-Message "Could not locate loadmxf.exe. Is Windows Media Center installed?" "WARN"
     } else {
