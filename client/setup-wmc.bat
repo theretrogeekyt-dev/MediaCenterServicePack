@@ -62,3 +62,4 @@ echo ======================================================================
 echo.
 
 powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('MediaCenterServicePack has been successfully installed!`n`nYour TV Guide, Music Album Art, and Movie Metadata will now update automatically in the background with zero terminals required.`n`nA ''Sync Windows Media Center'' shortcut has also been placed on your Desktop.', 'MediaCenterServicePack Setup Complete', 0, 64)" >nul 2>&1
+
