@@ -288,6 +288,15 @@ powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -DownloadMo
 
 # Directly download album artwork (Folder.jpg 500x500 + AlbumArtSmall.jpg 75x75) into WMC art_cache:
 powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -DownloadAlbum "Dark Side of the Moon"
+
+# Automatically scan a music folder and download missing 500x500 Folder.jpg for all albums:
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -MusicFolder "C:\Users\YourUser\Music"
+
+# Re-index and refresh WMC's music library cache:
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -RefreshMusic
+
+# Deep reset: Clear corrupt WMP/WMC media library database & rebuild from Folder.jpg:
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ResetMusicDatabase
 ```
 
 ---

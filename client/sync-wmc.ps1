@@ -20,6 +20,15 @@
 .PARAMETER DownloadAlbum
     Optional: Title or MBID of a music album to directly download 500x500 WMC artwork for.
 
+.PARAMETER MusicFolder
+    Optional: Path to music directory (e.g. "C:\Users\User\Music"). Scans for albums missing Folder.jpg, auto-downloads 500x500 artwork, and injects into WMC.
+
+.PARAMETER RefreshMusic
+    Optional switch: Clears stale WMC art_cache and triggers ehPrivJob.exe /DoReIndexing to refresh the music library.
+
+.PARAMETER ResetMusicDatabase
+    Optional switch: Stops WMP Network Sharing Service, deletes corrupt or stale CurrentDatabase_*.wmdb library database (audio files are never touched), and forces a clean rescan.
+
 .PARAMETER SkipServiceRestart
     If set, skips stopping/starting ehsched and ehrecvr services during ingestion.
 
@@ -27,8 +36,10 @@
     Suppresses console output (useful for silent Task Scheduler jobs).
 
 .EXAMPLE
-    .\sync-wmc.ps1 -ServerUrl "http://192.168.1.100:8080"
-    .\sync-wmc.ps1 -ServerUrl "http://192.168.1.100:8080" -DownloadMovie "Inception"
+    .\sync-wmc.ps1
+    .\sync-wmc.ps1 -RefreshMusic
+    .\sync-wmc.ps1 -MusicFolder "C:\Users\New User\Music"
+    .\sync-wmc.ps1 -DownloadAlbum "Abbey Road"
 #>
 
 [CmdletBinding()]
@@ -44,6 +55,15 @@ param (
 
     [Parameter(Mandatory = $false)]
     [string]$DownloadAlbum = $null,
+
+    [Parameter(Mandatory = $false)]
+    [string]$MusicFolder = $null,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$RefreshMusic = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ResetMusicDatabase = $false,
 
     [Parameter(Mandatory = $false)]
     [string]$ApiKey = $null,
@@ -164,6 +184,27 @@ Log-Message "Active Server Endpoint: $ServerUrl"
 $webClient = New-Object System.Net.WebClient
 $webClient.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
 
+# Locate eHome utilities (loadmxf.exe, ehPrivJob.exe)
+$ehomeCandidates = @(
+    "$env:SystemRoot\ehome",
+    "$env:SystemRoot\SysWOW64\ehome",
+    "$env:SystemDrive\Windows\ehome"
+)
+$loadMxfPath = $null
+$ehPrivJob = $null
+$ehomeDir = $null
+foreach ($dir in $ehomeCandidates) {
+    if (Test-Path (Join-Path $dir "loadmxf.exe")) {
+        $loadMxfPath = Join-Path $dir "loadmxf.exe"
+        $ehomeDir = $dir
+    }
+    if (Test-Path (Join-Path $dir "ehPrivJob.exe")) {
+        $ehPrivJob = Join-Path $dir "ehPrivJob.exe"
+        $ehomeDir = $dir
+    }
+    if ($loadMxfPath -or $ehPrivJob) { break }
+}
+
 # 3. Direct Movie Metadata Download (Optional)
 if ($DownloadMovie) {
     Log-Message "Querying backend for movie metadata: '$DownloadMovie'..."
@@ -192,7 +233,7 @@ if ($DownloadMovie) {
     }
 }
 
-# 4. Direct Music Artwork Download (Optional)
+# 4. Direct Music Artwork Download (Single Album)
 if ($DownloadAlbum) {
     Log-Message "Querying backend for album artwork: '$DownloadAlbum'..."
     $albumZipPath = Join-Path $WorkingDirectory "music_art.zip"
@@ -209,34 +250,118 @@ if ($DownloadAlbum) {
 
         # Also copy to WMC art_cache if present
         $wmcArtCache = "$env:LOCALAPPDATA\Microsoft\eHome\art_cache"
-        if (Test-Path $wmcArtCache) {
-            Copy-Item -Path (Join-Path $albumOutDir "Folder.jpg") -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
-            Log-Message "Copied 500x500 artwork into WMC art_cache." "SUCCESS"
+        if (-not (Test-Path $wmcArtCache)) { New-Item -ItemType Directory -Path $wmcArtCache -Force | Out-Null }
+        Copy-Item -Path (Join-Path $albumOutDir "Folder.jpg") -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
+        Log-Message "Copied 500x500 artwork into WMC art_cache." "SUCCESS"
+
+        # Trigger re-indexing
+        if ($ehPrivJob -and (Test-Path $ehPrivJob)) {
+            Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+            Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
         }
     } catch {
         Log-Message "Failed downloading music artwork: $_" "ERROR"
     }
 }
 
-# 5. Guide Ingestion Routine (Skip if running specific media downloads only)
-if (-not $DownloadMovie -and -not $DownloadAlbum) {
-    $ehomeCandidates = @(
-        "$env:SystemRoot\ehome",
-        "$env:SystemRoot\SysWOW64\ehome",
-        "$env:SystemDrive\Windows\ehome"
-    )
-
-    $loadMxfPath = $null
-    $ehomeDir = $null
-    foreach ($dir in $ehomeCandidates) {
-        $testPath = Join-Path $dir "loadmxf.exe"
-        if (Test-Path $testPath) {
-            $loadMxfPath = $testPath
-            $ehomeDir = $dir
-            break
+# 5. Batch Music Folder Artwork Enrichment (Optional)
+if ($MusicFolder) {
+    if (-not (Test-Path $MusicFolder)) {
+        Log-Message "Specified MusicFolder does not exist: $MusicFolder" "ERROR"
+    } else {
+        Log-Message "Scanning MusicFolder for albums missing artwork: $MusicFolder"
+        $subDirs = Get-ChildItem -Path $MusicFolder -Directory -Recurse -ErrorAction SilentlyContinue
+        $albumDirs = @()
+        foreach ($d in $subDirs) {
+            $hasAudio = Get-ChildItem -Path $d.FullName -Include "*.mp3","*.wma","*.flac","*.m4a","*.aac" -File -Depth 1 -ErrorAction SilentlyContinue
+            if ($hasAudio) {
+                $albumDirs += $d
+            }
         }
+        $rootAudio = Get-ChildItem -Path $MusicFolder -Include "*.mp3","*.wma","*.flac","*.m4a","*.aac" -File -Depth 1 -ErrorAction SilentlyContinue
+        if ($rootAudio) {
+            $albumDirs += (Get-Item $MusicFolder)
+        }
+
+        Log-Message "Found $($albumDirs.Count) music album directories."
+        $wmcArtCache = "$env:LOCALAPPDATA\Microsoft\eHome\art_cache"
+        if (-not (Test-Path $wmcArtCache)) { New-Item -ItemType Directory -Path $wmcArtCache -Force | Out-Null }
+
+        $downloadedCount = 0
+        foreach ($dir in $albumDirs) {
+            $folderJpg = Join-Path $dir.FullName "Folder.jpg"
+            if (-not (Test-Path $folderJpg)) {
+                $cleanName = $dir.Name -replace '^\d+\s*[-.]\s*', '' -replace '^\(\d{4}\)\s*', ''
+                Log-Message "Fetching artwork for album: '$cleanName'..."
+                try {
+                    $tmpZip = Join-Path $WorkingDirectory "temp_art.zip"
+                    $url = "$($ServerUrl.TrimEnd('/'))/api/metadata/music/$([System.Uri]::EscapeDataString($cleanName))/download"
+                    $webClient.DownloadFile($url, $tmpZip)
+
+                    $archive = [System.IO.Compression.ZipFile]::OpenRead($tmpZip)
+                    foreach ($entry in $archive.Entries) {
+                        if ($entry.Name -in @("Folder.jpg", "folder.jpg", "AlbumArtSmall.jpg")) {
+                            $targetFile = Join-Path $dir.FullName $entry.Name
+                            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $targetFile, $true)
+                        }
+                    }
+                    $archive.Dispose()
+                    Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+
+                    if (Test-Path $folderJpg) {
+                        Copy-Item -Path $folderJpg -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
+                    }
+                    $downloadedCount++
+                    Log-Message "Added WMC artwork to: $($dir.FullName)" "SUCCESS"
+                } catch {
+                    Log-Message "Could not find artwork for '$cleanName': $_" "WARN"
+                }
+            } else {
+                Copy-Item -Path $folderJpg -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Log-Message "Completed music folder enrichment. Downloaded artwork for $downloadedCount albums." "SUCCESS"
+        $RefreshMusic = $true
+    }
+}
+
+# 6. Refresh / Reset Music Library & Database (Optional)
+if ($ResetMusicDatabase) {
+    Log-Message "Resetting Windows Media Player & Media Center music library database..." "WARN"
+    Stop-Service -Name "wmpnetwk" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "ehshell", "wmplayer" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+
+    $wmpDbPath = "$env:LOCALAPPDATA\Microsoft\Media Player"
+    if (Test-Path $wmpDbPath) {
+        Get-ChildItem -Path $wmpDbPath -Filter "CurrentDatabase_*.wmdb" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Log-Message "Cleared WMP CurrentDatabase_*.wmdb library database." "SUCCESS"
     }
 
+    $wmcArtCache = "$env:LOCALAPPDATA\Microsoft\eHome\art_cache"
+    if (Test-Path $wmcArtCache) {
+        Remove-Item "$wmcArtCache\*" -Recurse -Force -ErrorAction SilentlyContinue
+        Log-Message "Cleared eHome art_cache." "SUCCESS"
+    }
+
+    Start-Service -Name "wmpnetwk" -ErrorAction SilentlyContinue
+    $RefreshMusic = $true
+}
+
+if ($RefreshMusic) {
+    Log-Message "Triggering Windows Media Center eHome music re-indexing..."
+    if ($ehPrivJob -and (Test-Path $ehPrivJob)) {
+        Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+        Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+        Log-Message "ehPrivJob /DoReIndexing and /UpdateDiscMetadata completed." "SUCCESS"
+    } else {
+        Log-Message "Notice: ehPrivJob.exe not found. Restart Windows Media Center to view updated music metadata." "WARN"
+    }
+}
+
+# 7. Guide Ingestion Routine (Skip if running specific media/music operations only)
+$hasMediaOp = $DownloadMovie -or $DownloadAlbum -or $MusicFolder -or $RefreshMusic -or $ResetMusicDatabase
+if (-not $hasMediaOp -or $SyncNow) {
     if (-not $loadMxfPath) {
         Log-Message "Could not locate loadmxf.exe. Is Windows Media Center installed?" "WARN"
     } else {
@@ -290,8 +415,7 @@ if (-not $DownloadMovie -and -not $DownloadAlbum) {
             Start-Service -Name "ehrecvr" -ErrorAction SilentlyContinue
         }
 
-        $ehPrivJob = Join-Path $ehomeDir "ehPrivJob.exe"
-        if (Test-Path $ehPrivJob) {
+        if ($ehPrivJob -and (Test-Path $ehPrivJob)) {
             Log-Message "Refreshing eHome caches via ehPrivJob..."
             Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
             Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
