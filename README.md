@@ -166,8 +166,7 @@ services:
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
-      - EPG_API_KEY=your_service_api_key_here
-      - XMLTV_URL=https://example.com/epg.xml
+      - EPG_API_KEY=your_epg_service_api_key_here
       - TMDB_API_KEY=your_tmdb_api_key_here
       - CRON_EPG_SYNC=0 3 * * *
     volumes:
