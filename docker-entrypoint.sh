@@ -16,7 +16,7 @@ if ! id -u openmce >/dev/null 2>&1; then
 fi
 
 # Ensure permissions on internal config and cache directories
-mkdir -p /config/cache /media/movies /media/music
+mkdir -p /config/cache
 chown -R "$PUID:$PGID" /config
 
 # Execute target command as the configured non-root user

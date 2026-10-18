@@ -4,7 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -12,9 +12,7 @@ from src import __version__
 from src.config import settings
 from src.epg.pipeline import EPGPipeline, EPGStats
 from src.metadata.movie_engine import MovieEngine
-from src.metadata.movie_scanner import MovieScannerStats
 from src.metadata.music_engine import MusicEngine
-from src.metadata.music_scanner import MusicScannerStats
 from src.scheduler.tasks import scheduler_service
 
 logger = logging.getLogger("mediacenter")
@@ -24,7 +22,7 @@ START_TIME = time.time()
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Global Direct Metadata Engines
+# Global Direct Metadata Engines (Direct online retrieval, zero media folder mounts)
 movie_engine = MovieEngine()
 music_engine = MusicEngine()
 
@@ -73,8 +71,6 @@ async def health_check():
         "uptime_seconds": uptime,
         "version": __version__,
         "epg": EPGStats.to_dict(),
-        "movies": MovieScannerStats.to_dict(),
-        "music": MusicScannerStats.to_dict(),
     }
 
 
@@ -86,13 +82,9 @@ async def get_system_status():
         "uptime_seconds": int(time.time() - START_TIME),
         "timezone": settings.TZ,
         "epg": EPGStats.to_dict(),
-        "movies": MovieScannerStats.to_dict(),
-        "music": MusicScannerStats.to_dict(),
         "jobs": scheduler_service.get_job_info(),
         "config": {
             "config_dir": str(settings.config_path),
-            "movies_dir": str(settings.movies_path),
-            "music_dir": str(settings.music_path),
             "xmltv_configured": bool(settings.XMLTV_URL or settings.XMLTV_FILE),
             "schedules_direct_configured": bool(settings.SCHEDULES_DIRECT_USER),
             "tmdb_configured": bool(settings.TMDB_API_KEY),
@@ -138,16 +130,6 @@ async def trigger_epg_sync(source_url: Optional[str] = None):
     except Exception as e:
         logger.error(f"Manual EPG sync failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/media/scan")
-async def trigger_media_scan(background_tasks: BackgroundTasks, force_refresh: bool = False):
-    """Manually trigger background movie and music library scan."""
-    background_tasks.add_task(scheduler_service.run_media_scan, force_refresh=force_refresh)
-    return {
-        "status": "accepted",
-        "message": "Media scanning task dispatched to background worker.",
-    }
 
 
 # =========================================================================
@@ -252,7 +234,5 @@ async def index_page(request: Request):
             "host_ip": request.client.host if request.client else "localhost",
             "port": settings.PORT,
             "epg": EPGStats.to_dict(),
-            "movies": MovieScannerStats.to_dict(),
-            "music": MusicScannerStats.to_dict(),
         },
     )

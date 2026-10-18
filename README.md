@@ -9,6 +9,9 @@
 
 Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online cloud services, MediaCenterServicePack runs on-premises as a headless appliance. It ingests modern upstream data feeds (XMLTV, Schedules Direct, TMDb, MusicBrainz) and compiles schema-compliant payloads natively ingested by legacy WMC binaries (`loadmxf.exe` and `ehshell.exe`).
 
+> [!IMPORTANT]
+> **Headless Server Appliance**: MediaCenterServicePack is strictly a backend server, not a media player or media manager. It does **NOT** require or mount media folders. All movie metadata and music artwork are fetched and served directly on-demand via REST APIs, the web dashboard, and client automation scripts.
+
 ---
 
 ## Key Features
@@ -36,7 +39,7 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
    - Native container health check endpoint (`GET /health`).
 
 5. **Client Automation Helper**:
-   - `client/sync-wmc.ps1`: Lightweight PowerShell script for WMC machines to download `guide.mxf`, safely manage background services (`ehsched`, `ehrecvr`), execute `loadmxf.exe -i guide.mxf`, and invoke `ehPrivJob.exe` to refresh thumbnail and metadata caches.
+   - `client/sync-wmc.ps1`: Lightweight PowerShell script for WMC machines to download `guide.mxf`, safely manage background services (`ehsched`, `ehrecvr`), execute `loadmxf.exe -i guide.mxf`, and invoke `ehPrivJob.exe` to refresh thumbnail and metadata caches. Also supports direct movie and album artwork package downloads.
 
 ---
 
@@ -52,27 +55,27 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
                                           |
                                           v
 +-----------------------------------------------------------------------------+
-| OpenMCE Backend (Docker Container)                                          |
+| MediaCenterServicePack Backend (Docker Container - Headless Appliance)      |
 |                                                                             |
 |   +--------------------+   +--------------------+   +-------------------+   |
-|   | EPG Lineup Service |   | Movie Engine       |   | Music Engine      |   |
-|   | - XMLTV Parser     |   | - TMDb Client      |   | - MusicBrainz WS2 |   |
-|   | - Schedules Direct |   | - MDR-DVD 5.0      |   | - ID3v2.3 Tagger  |   |
-|   | - MXF Generator    |   | - dvdid.xml Writer |   | - 500x500 Art Res |   |
+|   | EPG Lineup Service |   | Direct Movie Engine|   | Direct Music Eng  |   |
+|   | - XMLTV Parser     |   | - TMDb Search/Get  |   | - MusicBrainz WS2 |   |
+|   | - Schedules Direct |   | - MDR-DVD 5.0 XML  |   | - 500x500 Cover   |   |
+|   | - MXF Generator    |   | - folder/poster.jpg|   | - AlbumArtSmall   |   |
 |   +---------+----------+   +---------+----------+   +---------+---------+   |
 |             |                        |                        |             |
 |             v                        v                        v             |
-|      /config/guide.mxf        /media/movies/           /media/music/        |
-|                               (dvdid.xml + folder.jpg) (Folder.jpg + APIC)  |
+|      /config/guide.mxf        Direct On-Demand ZIP     Direct On-Demand ZIP |
+|                               (dvdid.xml + artwork)    (Folder.jpg + APIC)  |
 |                                                                             |
 |   +---------------------------------------------------------------------+   |
 |   | FastAPI Web Server & Admin Dashboard (Port 8080)                     |   |
-|   | GET /health | GET /api/guide.mxf | GET /api/status | POST /api/...  |   |
+|   | GET /health | GET /api/guide.mxf | GET /api/status | GET /api/...   |   |
 |   +---------------------------------------------------------------------+   |
 +-------------------------------------+---------------------------------------+
                                       |
-                     HTTP Pull        | Local Shared Volumes
-               (/api/guide.mxf)       | (SMB / NFS Shares)
+                     HTTP Pull / On-Demand Downloads
+          (guide.mxf / movie ZIP bundles / album art ZIP bundles)
                                       v
 +-----------------------------------------------------------------------------+
 | Windows Media Center Host (Windows 7 / 8.1 / 10 / 11 Community Edition)     |
@@ -80,13 +83,10 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 |   1. Windows Task Scheduler executes:                                       |
 |      client/sync-wmc.ps1 -ServerUrl http://<docker-host>:8080               |
 |                                                                             |
-|   2. Service Management:                                                    |
-|      Stop-Service ehsched, ehrecvr                                          |
-|                                                                             |
-|   3. Database Ingestion:                                                    |
+|   2. Database Ingestion:                                                    |
 |      %windir%\ehome\loadmxf.exe -i guide.mxf                                |
 |                                                                             |
-|   4. Cache & Thumbnail Refresh:                                             |
+|   3. Cache & Thumbnail Refresh:                                             |
 |      %windir%\ehome\ehPrivJob.exe /DoReIndexing /UpdateDiscMetadata         |
 |      Start-Service ehsched, ehrecvr                                         |
 +-----------------------------------------------------------------------------+
@@ -102,7 +102,7 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 │       └── docker-ci.yml        # Automated CI/CD pipeline (build, test, publish)
 ├── .dockerignore                # Build context exclusion rules
 ├── Dockerfile                   # Multi-stage lightweight Python 3.12-slim build
-├── docker-compose.yml           # Pre-configured compose stack with persistent mounts
+├── docker-compose.yml           # Pre-configured compose stack with persistent config mount
 ├── docker-entrypoint.sh         # Dynamic non-root PUID/PGID permissions mapper
 ├── requirements.txt             # Core backend dependencies
 ├── pytest.ini                   # Async test runner configuration
@@ -122,19 +122,19 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 │   │   └── pipeline.py          # Orchestration pipeline and fallback generator
 │   ├── metadata/
 │   │   ├── tmdb_client.py       # TMDb API client & title extraction
+│   │   ├── movie_engine.py      # Direct TMDb movie metadata & ZIP bundle engine
 │   │   ├── dvdid_generator.py   # 5.0 MDR-DVD dvdid.xml sidecar generator
-│   │   ├── movie_scanner.py     # Movie directory scan daemon
 │   │   ├── musicbrainz_client.py# MusicBrainz & Cover Art Archive client
-│   │   ├── music_tagger.py      # Mutagen ID3v2.3 tagger & Pillow 500x500 resizer
-│   │   └── music_scanner.py     # Music directory scan daemon
+│   │   ├── music_engine.py      # Direct MusicBrainz/CAA artwork & ZIP engine
+│   │   └── music_tagger.py      # Mutagen ID3v2.3 tagger & Pillow 500x500 resizer
 │   └── scheduler/
 │       └── tasks.py             # APScheduler cron background runner
 └── tests/
     ├── conftest.py              # Pytest isolation fixtures
     ├── test_api.py              # FastAPI endpoint tests
-    ├── test_epg_mxf.py          # MXF schema compliance tests
-    ├── test_metadata.py         # dvdid.xml & ID3v2.3 tagger tests
-    └── test_scanners.py         # End-to-end scanner pipeline tests
+    ├── test_direct_metadata.py  # Direct movie and music engine & download tests
+    ├── test_epg_mxf.py          # MXF schema compliance & pipeline tests
+    └── test_metadata.py         # dvdid.xml & ID3v2.3 tagger tests
 ```
 
 ---
@@ -150,7 +150,7 @@ git clone https://github.com/theretrogeekyt-dev/MediaCenterServicePack.git
 cd MediaCenterServicePack
 ```
 
-Edit `docker-compose.yml` to specify your media paths, timezone, and optional API keys:
+Edit `docker-compose.yml` to specify your timezone, upstream guide source, and optional API keys:
 
 ```yaml
 services:
@@ -168,11 +168,8 @@ services:
       - XMLTV_URL=https://example.com/epg.xml
       - TMDB_API_KEY=your_tmdb_api_key_here
       - CRON_EPG_SYNC=0 3 * * *
-      - CRON_MEDIA_SCAN=0 4 * * *
     volumes:
       - ./config:/config
-      - /mnt/storage/movies:/media/movies
-      - /mnt/storage/music:/media/music
 ```
 
 Start the container:
@@ -195,6 +192,7 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `PUID` | `1000` | User ID for volume file ownership (unRAID/Synology/NAS) |
 | `PGID` | `1000` | Group ID for volume file ownership |
 | `PORT` | `8080` | Internal HTTP listening port |
+| `CONFIG_DIR` | `/config` | Path to persistent storage for app settings, cache, and `guide.mxf` |
 | `XMLTV_URL` | *None* | HTTP/HTTPS URL to an upstream XMLTV feed |
 | `XMLTV_FILE` | *None* | Local path to an XMLTV file (e.g. `/config/guide.xml`) |
 | `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct account username |
@@ -202,7 +200,6 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `SCHEDULES_DIRECT_KEY` | *None* | Schedules Direct API token (optional) |
 | `TMDB_API_KEY` | *None* | API Key for The Movie Database (v3) |
 | `CRON_EPG_SYNC` | `0 3 * * *` | Crontab expression for daily EPG sync (03:00) |
-| `CRON_MEDIA_SCAN` | `0 4 * * *` | Crontab expression for media scanning (04:00) |
 
 ---
 
@@ -222,15 +219,26 @@ On your Windows Media Center PC (running Windows 7, 8.1, 10, or 11 with the WMC 
    - **Arguments**: `-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -Quiet`
    - **Run with highest privileges**: Enabled (required for `loadmxf.exe`).
 
+### Direct Movie & Music Downloads via Client Script
+
+You can also use `sync-wmc.ps1` to download movie metadata and music artwork packages directly from your backend:
+
+```powershell
+# Directly download movie metadata (dvdid.xml + folder.jpg) into WMC DvdInfoCache:
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -DownloadMovie "Inception"
+
+# Directly download album artwork (Folder.jpg 500x500 + AlbumArtSmall.jpg 75x75) into WMC art_cache:
+powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl http://192.168.1.100:8080 -DownloadAlbum "Dark Side of the Moon"
+```
+
 ---
 
 ## API Endpoints
 
-- `GET /health`: JSON container health check reporting service uptime and component states.
+- `GET /health`: JSON container health check reporting service uptime and EPG status.
 - `GET /api/guide.mxf`: Serves compiled MXF XML payload (`loadmxf.exe` target).
 - `GET /api/status`: Detailed system metrics, configured paths, channel counts, and job schedules.
 - `POST /api/epg/sync`: Manually triggers immediate EPG download and MXF generation.
-- `POST /api/media/scan`: Manually triggers background scan for movies and music shares.
 - `GET /api/metadata/movies/search`: Directly search TMDb movies (`?query=...&year=...`).
 - `GET /api/metadata/movies/{id}`: Directly retrieve full TMDb movie details.
 - `GET /api/metadata/movies/{id}/download`: Download complete WMC movie package (.zip) with `dvdid.xml` and `folder.jpg`.
@@ -255,7 +263,7 @@ All 15 tests validate:
 - Microsoft MXF schema compliance (`McStore.dll`, `Providers`, `With`, `ScheduleEntries`, `Lineup`).
 - `dvdid.xml` 5.0 MDR-DVD schema validation.
 - ID3v2.3 tag compliance and 500x500 Pillow image resizing.
-- End-to-end scanner directory processing.
+- Direct TMDb & MusicBrainz online metadata queries and WMC ZIP bundle generation.
 - FastAPI endpoints and HTML dashboard rendering.
 
 ---
@@ -267,7 +275,7 @@ The repository includes an automated GitHub Actions CI/CD pipeline defined in [`
 1. **Unit & Integration Testing**:
    Executes the full 15-test pytest suite on Python 3.12.
 2. **Container Build & Live Smoke Testing**:
-   - Builds the Docker image with Docker Buildx and GitHub Actions layer caching.
+   - Builds the Docker image with Docker Buildx (`docker/setup-buildx-action@v3`) and GitHub Actions layer caching.
    - Spins up the container and polls `/health` until healthy.
    - Validates that `/api/guide.mxf` produces valid XML containing `McStore.dll` and `<MXF>`.
    - Validates `/api/status`.
@@ -287,4 +295,3 @@ The repository includes an automated GitHub Actions CI/CD pipeline defined in [`
 ## License
 
 This project is released into the public domain under the [Unlicense](LICENSE).
-

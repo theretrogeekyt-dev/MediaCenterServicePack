@@ -42,14 +42,12 @@ COPY src/ /app/src/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh && \
-    mkdir -p /config /media/movies /media/music
+    mkdir -p /config
 
 # Default environment configuration
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     CONFIG_DIR=/config \
-    MEDIA_MOVIES_DIR=/media/movies \
-    MEDIA_MUSIC_DIR=/media/music \
     PUID=1000 \
     PGID=1000 \
     TZ=UTC \

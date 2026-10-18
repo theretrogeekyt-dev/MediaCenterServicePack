@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+from pathlib import Path
 from lxml import etree
 import pytest
 
 from src.epg.models import Channel, EPGDatabase, Lineup, Program, ScheduleEntry, SeriesInfo
 from src.epg.mxf_generator import MXFGenerator
+from src.epg.pipeline import EPGPipeline, EPGStats
 from src.epg.xmltv_parser import XMLTVParser, parse_xmltv_date
 
 MOCK_XMLTV = b"""<?xml version="1.0" encoding="utf-8"?>
@@ -190,4 +192,22 @@ def test_mxf_generator_schema_compliance():
     assert c1.get("number") == "4"
     assert c1.get("subNumber") == "1"
     assert c1.get("matchName") == "4.1 WNBC"
+
+
+@pytest.mark.asyncio
+async def test_epg_pipeline_generation(tmp_path: Path):
+    """Verify end-to-end EPG pipeline generates valid guide.mxf and updates stats."""
+    pipeline = EPGPipeline()
+    output_path = await pipeline.run()
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert EPGStats.status == "Healthy"
+    assert EPGStats.channels_count >= 5
+    assert EPGStats.schedule_count > 0
+
+    # Ensure XML structure is valid
+    root = etree.parse(str(output_path)).getroot()
+    assert root.tag == "MXF"
+
 

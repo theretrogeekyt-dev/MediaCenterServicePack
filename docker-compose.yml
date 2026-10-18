@@ -22,21 +22,16 @@ services:
       - SCHEDULES_DIRECT_PASS=
       - SCHEDULES_DIRECT_KEY=
 
-      # Metadata API Keys
+      # Metadata API Keys (for direct TMDb queries)
       # Get a free API key at https://www.themoviedb.org/settings/api
       - TMDB_API_KEY=
 
-      # Background cron sync schedules (standard crontab format)
+      # Background cron EPG sync schedule (standard crontab format)
       - CRON_EPG_SYNC=0 3 * * *      # Daily at 03:00 AM
-      - CRON_MEDIA_SCAN=0 4 * * *    # Daily at 04:00 AM
 
     volumes:
-      # Application persistent config, cache, and compiled guide.mxf
+      # Application persistent config, cache, and compiled guide.mxf (No media folders needed)
       - ./config:/config
-      # Mount your movie library share (stores dvdid.xml and folder.jpg)
-      - ./media/movies:/media/movies
-      # Mount your music library share (ID3v2.3 tags and 500x500 album art)
-      - ./media/music:/media/music
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -44,4 +39,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-

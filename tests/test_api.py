@@ -17,8 +17,6 @@ async def test_health_endpoint():
         assert "version" in data
         assert "uptime_seconds" in data
         assert "epg" in data
-        assert "movies" in data
-        assert "music" in data
 
 
 @pytest.mark.asyncio
@@ -62,17 +60,6 @@ async def test_manual_epg_sync():
 
 
 @pytest.mark.asyncio
-async def test_manual_media_scan():
-    """Verify manual media scan trigger endpoint."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/media/scan")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "accepted"
-
-
-@pytest.mark.asyncio
 async def test_dashboard_html():
     """Verify HTML dashboard renders."""
     transport = ASGITransport(app=app)
@@ -82,4 +69,3 @@ async def test_dashboard_html():
         assert "MediaCenterServicePack" in resp.text
         assert "EPG Lineup Service" in resp.text
         assert "sync-wmc.ps1" in resp.text
-

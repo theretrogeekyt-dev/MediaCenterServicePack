@@ -24,8 +24,6 @@ class Settings(BaseSettings):
 
     # Paths
     CONFIG_DIR: str = "/config"
-    MEDIA_MOVIES_DIR: str = "/media/movies"
-    MEDIA_MUSIC_DIR: str = "/media/music"
 
     # Upstream Guide sources
     XMLTV_URL: Optional[str] = None
@@ -39,26 +37,11 @@ class Settings(BaseSettings):
 
     # Cron schedules
     CRON_EPG_SYNC: str = "0 3 * * *"       # Daily at 03:00
-    CRON_MEDIA_SCAN: str = "0 4 * * *"     # Daily at 04:00
 
     @property
     def config_path(self) -> Path:
         """Resolved path to the config directory."""
         path = Path(self.CONFIG_DIR)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    @property
-    def movies_path(self) -> Path:
-        """Resolved path to the movies media directory."""
-        path = Path(self.MEDIA_MOVIES_DIR)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    @property
-    def music_path(self) -> Path:
-        """Resolved path to the music media directory."""
-        path = Path(self.MEDIA_MUSIC_DIR)
         path.mkdir(parents=True, exist_ok=True)
         return path
 

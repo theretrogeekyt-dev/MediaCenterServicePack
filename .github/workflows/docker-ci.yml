@@ -137,7 +137,7 @@ jobs:
       - name: Validate System Status endpoint
         run: |
           echo "Testing /api/status endpoint..."
-          curl -sSf http://localhost:8080/api/status | grep -q '"timezone":"UTC"'
+          curl -sSf http://localhost:8080/api/status | grep -E '"timezone"\s*:\s*"UTC"'
           echo "Status endpoint verification succeeded!"
 
       - name: Clean up test container
