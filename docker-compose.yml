@@ -14,7 +14,13 @@ services:
       - PUID=1000
       - PGID=1000
 
-      # TV Guide EPG Service API Key (Direct online guide ingestion)
+      # TV Guide EPG Service Configuration (Schedules Direct)
+      # Provide your Login Name & Password directly:
+      - SCHEDULES_DIRECT_USER=
+      - SCHEDULES_DIRECT_PASS=
+      # Optional local postal code for antenna broadcast lineup (e.g. 67147):
+      - POSTAL_CODE=
+      # Or provide session token / username:password via EPG_API_KEY:
       - EPG_API_KEY=
 
       # Metadata API Keys (for direct TMDb queries)

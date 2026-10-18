@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     SCHEDULES_DIRECT_KEY: Optional[str] = None
     SCHEDULES_DIRECT_USER: Optional[str] = None
     SCHEDULES_DIRECT_PASS: Optional[str] = None
+    POSTAL_CODE: Optional[str] = None
     EPG_SERVICE_URL: Optional[str] = None
     XMLTV_URL: Optional[str] = None
     XMLTV_FILE: Optional[str] = None

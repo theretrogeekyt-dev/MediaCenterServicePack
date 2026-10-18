@@ -61,16 +61,25 @@ class SchedulesDirectClient:
         token: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        postal_code: Optional[str] = None,
         base_url: Optional[str] = None,
     ):
         self.token = token.strip() if token else None
         self.username = username.strip() if username else None
         self.password = password.strip() if password else None
+        self.postal_code = postal_code.strip() if postal_code else None
         self.base_url = (base_url or SD_BASE_URL).rstrip("/")
         self._client = httpx.AsyncClient(timeout=30.0)
 
     async def login(self) -> Optional[str]:
         """Authenticate or return direct service API key/token."""
+        # Allow passing "username:password" directly as token / EPG_API_KEY
+        if self.token and ":" in self.token and not self.username:
+            parts = self.token.split(":", 1)
+            self.username = parts[0].strip()
+            self.password = parts[1].strip()
+            self.token = None
+
         # 1. Use configured service API key directly if provided
         if self.token:
             logger.info("Using configured service API key directly.")
@@ -81,10 +90,15 @@ class SchedulesDirectClient:
             logger.warning("Neither service API key nor username/password provided.")
             return None
 
+        # Schedules Direct requires lowercase hexadecimal SHA1 hash of the password
+        import hashlib
+        is_sha1 = len(self.password) == 40 and all(c in "0123456789abcdefABCDEF" for c in self.password)
+        pw_hash = self.password.lower() if is_sha1 else hashlib.sha1(self.password.encode("utf-8")).hexdigest().lower()
+
         try:
             resp = await self._client.post(
                 f"{self.base_url}/token",
-                json={"username": self.username, "password": self.password},
+                json={"username": self.username, "password": pw_hash},
                 headers={"User-Agent": "MediaCenterServicePack/1.0 (theretrogeekyt-dev)"},
             )
             data = resp.json()
@@ -120,6 +134,42 @@ class SchedulesDirectClient:
 
             status_data = status_resp.json()
             lineups = status_data.get("lineups", [])
+            if not lineups:
+                logger.info("No SD-JSON lineups found on account. Attempting automatic lineup discovery...")
+                postal = self.postal_code
+                if not postal:
+                    from src.config import settings
+                    postal = settings.POSTAL_CODE
+
+                if postal:
+                    try:
+                        headends_resp = await self._client.get(
+                            f"{self.base_url}/headends?country=USA&postalcode={postal}",
+                            headers=headers,
+                        )
+                        if headends_resp.status_code == 200:
+                            headends = headends_resp.json()
+                            target_lineup_id = None
+                            if isinstance(headends, list):
+                                for he in headends:
+                                    for l in he.get("lineups", []):
+                                        target_lineup_id = l.get("lineup")
+                                        if "OTA" in str(target_lineup_id) or "Antenna" in l.get("name", ""):
+                                            break
+                                    if target_lineup_id:
+                                        break
+                            if not target_lineup_id:
+                                target_lineup_id = f"USA-OTA-{postal}"
+
+                            logger.info(f"Adding lineup '{target_lineup_id}' to Schedules Direct account via SD-JSON...")
+                            await self._client.put(
+                                f"{self.base_url}/lineups/{target_lineup_id}",
+                                headers=headers,
+                            )
+                            lineups = [{"lineup": target_lineup_id, "name": f"Broadcast Antenna ({postal})"}]
+                    except Exception as err:
+                        logger.warning(f"Automatic lineup setup failed: {err}")
+
             if not lineups:
                 logger.warning("No lineups configured in service account.")
                 return None

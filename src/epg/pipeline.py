@@ -188,6 +188,7 @@ class EPGPipeline:
                 logger.info("Service API key available. Querying EPG service directly...")
                 sd = SchedulesDirectClient(
                     token=target_api_key,
+                    postal_code=settings.POSTAL_CODE,
                     base_url=settings.EPG_SERVICE_URL,
                 )
                 try:
@@ -231,6 +232,7 @@ class EPGPipeline:
                 sd = SchedulesDirectClient(
                     username=settings.SCHEDULES_DIRECT_USER,
                     password=settings.SCHEDULES_DIRECT_PASS,
+                    postal_code=settings.POSTAL_CODE,
                     base_url=settings.EPG_SERVICE_URL,
                 )
                 try:
