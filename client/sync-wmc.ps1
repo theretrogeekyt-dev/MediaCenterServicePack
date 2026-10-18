@@ -648,6 +648,19 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                     $lineup.Update()
                 }
 
+                # Ensure lineup has !MCLineup UId for Headend subscription
+                $hasMcUid = $false
+                foreach ($u in $lineup.UIds) {
+                    if ($u.GetFullName().StartsWith("!MCLineup")) {
+                        $hasMcUid = $true
+                        break
+                    }
+                }
+                if (-not $hasMcUid) {
+                    $uids = New-Object Microsoft.MediaCenter.Store.UIds($store)
+                    $uids.Add("!MCLineup!USA-OTA-$PostalCode", $lineup)
+                }
+
                 # Clean up any corrupt or empty regions using ObjectCollectionDeleteRecords
                 $regType = $regions.ObjectType
                 $delMethod = $store.GetType().GetMethod("ObjectCollectionDeleteRecords", [System.Reflection.BindingFlags]"NonPublic,Public,Instance")

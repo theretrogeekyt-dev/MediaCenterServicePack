@@ -242,6 +242,7 @@ class SchedulesDirectClient:
 
             db.lineup = Lineup(
                 id=f"lineup_{lineup_uri}".replace("-", "_").replace("/", "_"),
+                uid=f"!MCLineup!{lineup_uri.replace('/', '_')}",
                 name=lineup_name,
                 display_name=lineup_name,
                 channels=list(db.channels.values()),

@@ -66,7 +66,7 @@ class ScheduleEntry(BaseModel):
 class Lineup(BaseModel):
     """Collection of channel mappings."""
     id: str = "l1"
-    uid: str = "!Lineup!OpenMCE"
+    uid: str = "!MCLineup!USA-OTA-67147"
     name: str = "OpenMCE Lineup"
     display_name: str = "Project eHome Lineup"
     channels: List[Channel] = Field(default_factory=list)
