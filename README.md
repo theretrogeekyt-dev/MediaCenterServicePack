@@ -184,12 +184,13 @@ services:
       - CRON_EPG_SYNC=0 3 * * *
     volumes:
       - ./config:/config
+      - ./src:/app/src
 ```
 
 Start the container:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Access the dashboard at `http://<docker-host>:8080/`.

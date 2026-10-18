@@ -5,7 +5,7 @@ import pytest
 
 from src.epg.models import Channel, EPGDatabase, Lineup, Program, ScheduleEntry, SeriesInfo
 from src.epg.mxf_generator import MXFGenerator
-from src.epg.pipeline import EPGPipeline, EPGStats
+from src.epg.pipeline import EPGPipeline, EPGStats, generate_fallback_epg
 from src.epg.schedules_direct import SchedulesDirectClient
 from src.epg.xmltv_parser import XMLTVParser, parse_xmltv_date
 
@@ -266,6 +266,16 @@ async def test_schedules_direct_client_direct_api_key(monkeypatch):
                             "videoProperties": ["HDTV"],
                             "audioProperties": ["STEREO"],
                             "new": True
+                        },
+                        {
+                            "programID": "SH002204290000",
+                            "airDateTime": "2026-10-18T21:00:00Z",
+                            "duration": 3600,
+                        },
+                        {
+                            "programID": "MV999999990000",
+                            "airDateTime": "2026-10-18T22:00:00Z",
+                            "duration": 7200,
                         }
                     ]
                 }
@@ -293,9 +303,22 @@ async def test_schedules_direct_client_direct_api_key(monkeypatch):
     assert db.channels["1001"].call_sign == "WABC"
     assert db.channels["1001"].number == 7
     assert db.channels["1001"].sub_number == 1
-    assert len(db.schedule_entries) > 0
+    assert len(db.schedule_entries) == 3
     assert "EP001001001" in db.programs
     assert db.programs["EP001001001"].title == "Direct API Primetime"
+
+    # Verify fallbacks for programs not returned by /programs do not use "Program SH..."
+    assert "SH002204290000" in db.programs
+    assert not db.programs["SH002204290000"].title.startswith("Program ")
+    assert db.programs["SH002204290000"].title in ("Television Program", "Scheduled Broadcast")
+    assert db.programs["MV999999990000"].title == "Feature Film"
+
+    # Verify MXF generation produces valid XML without "Program SH..."
+    generator = MXFGenerator(db)
+    mxf_bytes = generator.generate()
+    assert b"Assembly" in mxf_bytes
+    assert b"Program SH" not in mxf_bytes
+
     await client.close()
 
 
@@ -346,11 +369,14 @@ async def test_epg_pipeline_permission_error_fallback(tmp_path):
         def write_bytes(self, data):
             raise PermissionError("[Errno 13] Permission denied: '/config/guide.mxf'")
 
+    generator = MXFGenerator(generate_fallback_epg())
+    valid_mxf = generator.generate()
+
     # Test save_mxf_safely directly with locked target_file
-    written_path = EPGPipeline.save_mxf_safely(b"<MXF>Mock</MXF>", target_file=MockLockedPath())
+    written_path = EPGPipeline.save_mxf_safely(valid_mxf, target_file=MockLockedPath())
     assert written_path.exists()
-    assert written_path.read_bytes() == b"<MXF>Mock</MXF>"
-    assert EPGPipeline.last_mxf_bytes == b"<MXF>Mock</MXF>"
+    assert b"Assembly" in written_path.read_bytes()
+    assert b"Assembly" in EPGPipeline.last_mxf_bytes
 
 
 

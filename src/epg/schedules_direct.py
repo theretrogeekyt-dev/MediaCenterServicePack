@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Set
@@ -69,7 +70,7 @@ class SchedulesDirectClient:
         self.password = password.strip() if password else None
         self.postal_code = postal_code.strip() if postal_code else None
         self.base_url = (base_url or SD_BASE_URL).rstrip("/")
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0))
 
     async def login(self) -> Optional[str]:
         """Authenticate or return direct service API key/token."""
@@ -246,45 +247,94 @@ class SchedulesDirectClient:
                 channels=list(db.channels.values()),
             )
 
-            # 3. Fetch Schedules & Programs
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-            station_ids = list(db.channels.keys())[:20]  # Respect API batch quotas
-
-            sched_req = [{"stationID": s_id, "date": [today, tomorrow]} for s_id in station_ids]
-            sched_resp = await self._client.post(f"{self.base_url}/schedules", json=sched_req, headers=headers)
-
-            program_ids: Set[str] = set()
+            # 3. Fetch Schedules for ALL Stations (multi-day)
+            today_dt = datetime.now(timezone.utc)
+            dates = [(today_dt + timedelta(days=d)).strftime("%Y-%m-%d") for d in range(3)]
+            station_ids = list(db.channels.keys())
             raw_schedules = []
+            program_ids: Set[str] = set()
 
-            if sched_resp.status_code == 200:
-                raw_schedules = sched_resp.json()
-                if isinstance(raw_schedules, list):
-                    for st_sched in raw_schedules:
-                        for entry in st_sched.get("programs", []):
-                            p_id = entry.get("programID")
-                            if p_id:
-                                program_ids.add(p_id)
+            sched_batch_size = 50
+            for s_idx in range(0, len(station_ids), sched_batch_size):
+                s_batch = station_ids[s_idx : s_idx + sched_batch_size]
+                sched_req = [{"stationID": s_id, "date": dates} for s_id in s_batch]
+                try:
+                    sched_resp = await self._client.post(
+                        f"{self.base_url}/schedules", json=sched_req, headers=headers
+                    )
+                    if sched_resp.status_code == 200:
+                        batch_data = sched_resp.json()
+                        if isinstance(batch_data, list):
+                            raw_schedules.extend(batch_data)
+                            for st_sched in batch_data:
+                                for entry in st_sched.get("programs", []):
+                                    p_id = entry.get("programID")
+                                    if p_id:
+                                        program_ids.add(p_id)
+                except Exception as e:
+                    logger.error(f"Failed to fetch schedules batch for stations {s_batch}: {e}")
 
-            # 4. Fetch Program Details
+            # 4. Fetch Program Details for ALL unique programs in batches of 250
             if program_ids:
-                prog_req = list(program_ids)[:100]
-                prog_resp = await self._client.post(f"{self.base_url}/programs", json=prog_req, headers=headers)
-                if prog_resp.status_code == 200:
-                    prog_data = prog_resp.json()
+                logger.info(f"Retrieving full program metadata for {len(program_ids)} programs from Schedules Direct...")
+                prog_list = list(program_ids)
+                prog_batch_size = 250
+
+                for p_idx in range(0, len(prog_list), prog_batch_size):
+                    prog_chunk = prog_list[p_idx : p_idx + prog_batch_size]
+                    prog_data = None
+                    for attempt in range(2):
+                        try:
+                            prog_resp = await self._client.post(
+                                f"{self.base_url}/programs", json=prog_chunk, headers=headers
+                            )
+                            if prog_resp.status_code == 200:
+                                prog_data = prog_resp.json()
+                                break
+                            else:
+                                logger.warning(
+                                    f"Schedules Direct /programs returned HTTP {prog_resp.status_code} "
+                                    f"for batch {p_idx}-{p_idx + len(prog_chunk)} (attempt {attempt + 1})"
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                f"Attempt {attempt + 1} failed fetching programs batch {p_idx}-{p_idx + len(prog_chunk)}: {e}"
+                            )
+                            if attempt == 0:
+                                await asyncio.sleep(1.0)
+
                     if isinstance(prog_data, list):
                         for p_obj in prog_data:
+                            if not isinstance(p_obj, dict):
+                                continue
                             pid = p_obj.get("programID")
                             if not pid:
                                 continue
+                            if p_obj.get("code") and p_obj.get("code") != 0:
+                                continue
 
-                            # Title
-                            title = "Unknown Program"
-                            titles = p_obj.get("titles", [])
-                            if titles and isinstance(titles, list):
-                                title = titles[0].get("title120", title)
-                            elif "title120" in p_obj:
-                                title = p_obj["title120"]
+                            # Title extraction
+                            title = None
+                            titles = p_obj.get("titles")
+                            if isinstance(titles, list) and len(titles) > 0:
+                                for t_entry in titles:
+                                    if isinstance(t_entry, dict):
+                                        cand = t_entry.get("title120") or t_entry.get("title")
+                                        if cand and str(cand).strip():
+                                            title = str(cand).strip()
+                                            break
+                                    elif isinstance(t_entry, str) and t_entry.strip():
+                                        title = t_entry.strip()
+                                        break
+                            elif isinstance(titles, dict):
+                                cand = titles.get("title120") or titles.get("title")
+                                if cand and str(cand).strip():
+                                    title = str(cand).strip()
+
+                            if not title:
+                                title = p_obj.get("title120") or p_obj.get("title")
+                            if not title:
+                                title = p_obj.get("episodeTitle150")
 
                             # Description
                             desc = ""
@@ -292,28 +342,95 @@ class SchedulesDirectClient:
                             if isinstance(descriptions, dict):
                                 d1000 = descriptions.get("description1000", [])
                                 d100 = descriptions.get("description100", [])
-                                if d1000:
+                                if d1000 and isinstance(d1000, list):
                                     desc = d1000[0].get("description", "")
-                                elif d100:
+                                elif d100 and isinstance(d100, list):
                                     desc = d100[0].get("description", "")
+                            elif isinstance(descriptions, list) and descriptions:
+                                desc = descriptions[0].get("description", "")
 
                             entity_type = p_obj.get("entityType", "")
                             is_movie = (entity_type == "Movie" or pid.startswith("MV"))
                             is_series = (entity_type in ("Show", "Episode") or pid.startswith("EP") or pid.startswith("SH"))
+                            is_sports = (entity_type == "Sports" or pid.startswith("SP"))
 
                             genres = p_obj.get("genres", [])
                             ep_title = p_obj.get("episodeTitle150")
 
-                            # Series info
+                            # Season and Episode number
+                            season_number = None
+                            episode_number = None
+                            meta_list = p_obj.get("metadata", [])
+                            if isinstance(meta_list, list):
+                                for m in meta_list:
+                                    if isinstance(m, dict) and "Gracenote" in m:
+                                        gn = m["Gracenote"]
+                                        season_number = gn.get("season")
+                                        episode_number = gn.get("episode")
+                                        break
+
+                            # Original Air Date & Year
+                            original_air_date = p_obj.get("originalAirDate")
+                            movie_year = p_obj.get("movieYear")
+                            year = None
+                            if movie_year:
+                                try:
+                                    year = int(movie_year)
+                                except (ValueError, TypeError):
+                                    pass
+                            elif original_air_date and len(str(original_air_date)) >= 4:
+                                try:
+                                    year = int(str(original_air_date)[:4])
+                                except (ValueError, TypeError):
+                                    pass
+
+                            # Ratings
+                            mpaa_rating = None
+                            content_ratings = p_obj.get("contentRating", [])
+                            if isinstance(content_ratings, list):
+                                for cr in content_ratings:
+                                    if isinstance(cr, dict) and cr.get("code"):
+                                        mpaa_rating = cr.get("code")
+                                        break
+
+                            # Star Rating
+                            half_stars = None
+                            quality_ratings = p_obj.get("qualityRating", [])
+                            if isinstance(quality_ratings, list) and quality_ratings:
+                                qr = quality_ratings[0]
+                                if isinstance(qr, dict) and "rating" in qr:
+                                    try:
+                                        r_val = float(qr["rating"])
+                                        max_val = float(qr.get("maxRating", 4))
+                                        half_stars = int((r_val / max_val) * 8)
+                                    except (ValueError, TypeError, ZeroDivisionError):
+                                        pass
+
+                            # Series Info registration
                             series_id = None
                             if is_series:
                                 series_id = f"si_{pid[:10]}"
-                                if series_id not in db.series:
+                                if series_id not in db.series and title:
                                     db.series[series_id] = SeriesInfo(
                                         id=series_id,
                                         title=title,
                                         description=desc,
                                     )
+                                elif series_id in db.series and not title:
+                                    title = db.series[series_id].title
+
+                            if not title or title.strip() == "":
+                                series_candidate = f"si_{pid[:10]}"
+                                if series_candidate in db.series:
+                                    title = db.series[series_candidate].title
+                                elif is_movie:
+                                    title = "Feature Film"
+                                elif is_sports:
+                                    title = "Sports Event"
+                                elif is_series:
+                                    title = "Television Program"
+                                else:
+                                    title = "Scheduled Program"
 
                             db.programs[pid] = Program(
                                 id=pid,
@@ -322,7 +439,14 @@ class SchedulesDirectClient:
                                 description=desc,
                                 is_movie=is_movie,
                                 is_series=is_series,
+                                is_sports=is_sports,
                                 series_id=series_id,
+                                season_number=season_number,
+                                episode_number=episode_number,
+                                original_air_date=original_air_date,
+                                year=year,
+                                mpaa_rating=mpaa_rating,
+                                half_stars_rating=half_stars,
                                 genres=genres if isinstance(genres, list) else [],
                             )
 
@@ -339,7 +463,29 @@ class SchedulesDirectClient:
                         if not pid:
                             continue
                         if pid not in db.programs:
-                            db.programs[pid] = Program(id=pid, title=f"Program {pid}")
+                            # Clean fallback without raw "Program SH..." string
+                            series_candidate = f"si_{pid[:10]}"
+                            fallback_title = "Scheduled Broadcast"
+                            is_movie = pid.startswith("MV")
+                            is_series = pid.startswith("EP") or pid.startswith("SH")
+                            is_sports = pid.startswith("SP")
+
+                            if series_candidate in db.series:
+                                fallback_title = db.series[series_candidate].title
+                            elif is_movie:
+                                fallback_title = "Feature Film"
+                            elif is_sports:
+                                fallback_title = "Sports Broadcast"
+                            elif is_series:
+                                fallback_title = "Television Program"
+
+                            db.programs[pid] = Program(
+                                id=pid,
+                                title=fallback_title,
+                                is_movie=is_movie,
+                                is_series=is_series,
+                                is_sports=is_sports,
+                            )
 
                         air_time_str = entry.get("airDateTime")
                         if not air_time_str:
