@@ -38,7 +38,8 @@ async def lifespan(app: FastAPI):
     scheduler_service.start()
 
     # Pre-compile guide.mxf if not present
-    if not settings.guide_mxf_file.exists():
+    existing_guide = settings.get_existing_guide_mxf()
+    if not existing_guide:
         logger.info("No guide.mxf found on boot. Compiling initial EPG dataset...")
         try:
             pipeline = EPGPipeline()
@@ -98,25 +99,37 @@ async def get_system_status():
 @app.get("/api/guide.mxf")
 async def get_guide_mxf():
     """Serve the compiled Media Center XML Format (MXF) guide data."""
-    mxf_file = settings.guide_mxf_file
+    mxf_file = settings.get_existing_guide_mxf()
 
-    if not mxf_file.exists() or mxf_file.stat().st_size == 0:
+    if not mxf_file:
         logger.info("guide.mxf requested but does not exist. Triggering compilation...")
         try:
             pipeline = EPGPipeline()
-            await pipeline.run()
+            mxf_file = await pipeline.run()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to generate guide.mxf: {e}")
 
-    return FileResponse(
-        path=str(mxf_file),
-        media_type="application/xml",
-        filename="guide.mxf",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Content-Disposition": 'attachment; filename="guide.mxf"',
-        },
-    )
+    if mxf_file and mxf_file.exists():
+        return FileResponse(
+            path=str(mxf_file),
+            media_type="application/xml",
+            filename="guide.mxf",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Content-Disposition": 'attachment; filename="guide.mxf"',
+            },
+        )
+    elif EPGPipeline.last_mxf_bytes:
+        return Response(
+            content=EPGPipeline.last_mxf_bytes,
+            media_type="application/xml",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Content-Disposition": 'attachment; filename="guide.mxf"',
+            },
+        )
+    else:
+        raise HTTPException(status_code=500, detail="Failed to locate or generate guide.mxf payload.")
 
 
 @app.post("/api/epg/sync")

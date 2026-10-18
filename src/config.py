@@ -50,34 +50,66 @@ class Settings(BaseSettings):
     def config_path(self) -> Path:
         """Resolved path to the config directory."""
         path = Path(self.CONFIG_DIR)
-        path.mkdir(parents=True, exist_ok=True)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError):
+            pass
         return path
 
     @property
     def guide_mxf_file(self) -> Path:
-        """Resolved path to the compiled guide.mxf file."""
+        """Resolved path to the primary guide.mxf file."""
         return self.config_path / "guide.mxf"
 
+    @property
+    def fallback_guide_mxf_file(self) -> Path:
+        """Guaranteed writable fallback path if the volume mount has strict permissions."""
+        import tempfile
+        fallback_dir = Path(tempfile.gettempdir()) / "mediacenter_config"
+        try:
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return fallback_dir / "guide.mxf"
+
+    def get_existing_guide_mxf(self) -> Optional[Path]:
+        """Check for existing guide.mxf, checking primary volume then fallback."""
+        try:
+            if self.guide_mxf_file.exists() and self.guide_mxf_file.stat().st_size > 0:
+                return self.guide_mxf_file
+        except (PermissionError, OSError):
+            pass
+        try:
+            if self.fallback_guide_mxf_file.exists() and self.fallback_guide_mxf_file.stat().st_size > 0:
+                return self.fallback_guide_mxf_file
+        except Exception:
+            pass
+        return None
+
     def load_overrides(self):
-        """Load persistent user overrides from /config/settings.json if present."""
-        overrides_file = self.config_path / "settings.json"
-        if overrides_file.exists():
+        """Load persistent user overrides from settings.json if present."""
+        candidates = [
+            self.config_path / "settings.json",
+            self.fallback_guide_mxf_file.parent / "settings.json",
+        ]
+        for overrides_file in candidates:
             try:
-                import json
-                data = json.loads(overrides_file.read_text(encoding="utf-8"))
-                for k, v in data.items():
-                    if hasattr(self, k) and v is not None and v != "":
-                        setattr(self, k, v)
+                if overrides_file.exists():
+                    import json
+                    data = json.loads(overrides_file.read_text(encoding="utf-8"))
+                    for k, v in data.items():
+                        if hasattr(self, k) and v is not None and v != "":
+                            setattr(self, k, v)
+                    break
             except Exception:
                 pass
 
     def save_overrides(self, updates: dict):
-        """Save persistent user overrides to /config/settings.json."""
+        """Save persistent user overrides to settings.json, handling permission issues."""
         import json
         for k, v in updates.items():
             if hasattr(self, k) and v is not None:
                 setattr(self, k, v)
-        overrides_file = self.config_path / "settings.json"
         data = {
             "SCHEDULES_DIRECT_USER": self.SCHEDULES_DIRECT_USER,
             "SCHEDULES_DIRECT_PASS": self.SCHEDULES_DIRECT_PASS,
@@ -85,7 +117,26 @@ class Settings(BaseSettings):
             "EPG_API_KEY": self.EPG_API_KEY,
             "TMDB_API_KEY": self.TMDB_API_KEY,
         }
-        overrides_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        content = json.dumps(data, indent=2)
+
+        # Attempt to write to primary config path
+        try:
+            overrides_file = self.config_path / "settings.json"
+            overrides_file.parent.mkdir(parents=True, exist_ok=True)
+            if overrides_file.exists():
+                try:
+                    overrides_file.chmod(0o666)
+                except Exception:
+                    pass
+            overrides_file.write_text(content, encoding="utf-8")
+        except (PermissionError, OSError):
+            # Fallback to writable directory
+            try:
+                fallback_file = self.fallback_guide_mxf_file.parent / "settings.json"
+                fallback_file.parent.mkdir(parents=True, exist_ok=True)
+                fallback_file.write_text(content, encoding="utf-8")
+            except Exception:
+                pass
 
 
 # Global settings singleton

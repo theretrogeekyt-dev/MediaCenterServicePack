@@ -168,6 +168,53 @@ def generate_fallback_epg() -> EPGDatabase:
 class EPGPipeline:
     """Coordinates fetching, parsing, generating, and storing guide.mxf."""
     last_database: Optional[EPGDatabase] = None
+    last_mxf_bytes: Optional[bytes] = None
+
+    @staticmethod
+    def save_mxf_safely(data: bytes, target_file: Optional[Path] = None) -> Path:
+        """
+        Safely write MXF data to disk, handling file permissions, read-only files,
+        and host bind-mount permission restrictions. Falls back to a guaranteed
+        writable temp directory if the primary volume is permission-denied.
+        """
+        EPGPipeline.last_mxf_bytes = data
+        dest = target_file or settings.guide_mxf_file
+
+        # Attempt 1: Direct write / chmod
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                try:
+                    dest.chmod(0o666)
+                except Exception:
+                    pass
+            dest.write_bytes(data)
+            return dest
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Initial write to {dest} failed ({e}). Attempting atomic unlink & replace...")
+
+        # Attempt 2: Unlink and rewrite (POSIX allows deleting read-only files if dir is writable)
+        try:
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+            dest.write_bytes(data)
+            return dest
+        except (PermissionError, OSError) as e:
+            logger.warning(
+                f"Directory '{dest.parent}' is not writable ([Errno 13] Permission denied). "
+                f"Switching to fallback storage path: {settings.fallback_guide_mxf_file}"
+            )
+
+        # Attempt 3: Guaranteed writable fallback directory (/tmp)
+        fallback = settings.fallback_guide_mxf_file
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        if fallback.exists():
+            try:
+                fallback.chmod(0o666)
+            except Exception:
+                pass
+        fallback.write_bytes(data)
+        return fallback
 
     async def run(
         self,
@@ -254,10 +301,8 @@ class EPGPipeline:
             generator = MXFGenerator(db)
             mxf_bytes = generator.generate()
 
-            # Save to config directory
-            output_file = settings.guide_mxf_file
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_bytes(mxf_bytes)
+            # Save to config directory with robust permission handling
+            output_file = self.save_mxf_safely(mxf_bytes)
             EPGPipeline.last_database = db
 
             # Record stats
@@ -284,9 +329,7 @@ class EPGPipeline:
                 EPGPipeline.last_database = fallback_db
                 gen = MXFGenerator(fallback_db)
                 mxf_data = gen.generate()
-                output_file = settings.guide_mxf_file
-                output_file.parent.mkdir(parents=True, exist_ok=True)
-                output_file.write_bytes(mxf_data)
+                output_file = self.save_mxf_safely(mxf_data)
                 EPGStats.last_sync = datetime.now(timezone.utc)
                 EPGStats.channels_count = len(fallback_db.channels)
                 EPGStats.programs_count = len(fallback_db.programs)
@@ -294,7 +337,7 @@ class EPGPipeline:
                 EPGStats.status = "Degraded"
                 EPGStats.source = "Standard Broadcast Guide (Fallback)"
                 return output_file
-            except Exception:
+            except Exception as e2:
                 EPGStats.status = "Error"
-                raise e
+                raise e2
 

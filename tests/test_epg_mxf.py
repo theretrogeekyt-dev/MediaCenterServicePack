@@ -327,4 +327,30 @@ async def test_epg_pipeline_with_direct_service_api_key(monkeypatch):
     assert EPGStats.channels_count == 1
 
 
+@pytest.mark.asyncio
+async def test_epg_pipeline_permission_error_fallback(tmp_path):
+    """Verify that if primary guide_mxf_file raises PermissionError, save_mxf_safely falls back gracefully."""
+    # Force a primary path that triggers PermissionError on write
+    class MockLockedPath:
+        parent = tmp_path
+
+        def exists(self):
+            return True
+
+        def chmod(self, mode):
+            pass
+
+        def unlink(self, missing_ok=True):
+            raise PermissionError("[Errno 13] Permission denied (locked file)")
+
+        def write_bytes(self, data):
+            raise PermissionError("[Errno 13] Permission denied: '/config/guide.mxf'")
+
+    # Test save_mxf_safely directly with locked target_file
+    written_path = EPGPipeline.save_mxf_safely(b"<MXF>Mock</MXF>", target_file=MockLockedPath())
+    assert written_path.exists()
+    assert written_path.read_bytes() == b"<MXF>Mock</MXF>"
+    assert EPGPipeline.last_mxf_bytes == b"<MXF>Mock</MXF>"
+
+
 
