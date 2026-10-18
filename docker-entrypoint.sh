@@ -5,6 +5,13 @@ set -e
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
+# If /app/src was overwritten by an empty host mount, restore built-in source files
+if [ ! -f "/app/src/api/main.py" ] && [ -d "/opt/src" ]; then
+    echo "[docker-entrypoint] Notice: /app/src is missing source files. Restoring built-in application files..."
+    mkdir -p /app/src 2>/dev/null || true
+    cp -r /opt/src/* /app/src/ 2>/dev/null || true
+fi
+
 # If already running as non-root (e.g. rootless container or docker run -u), execute directly
 if [ "$(id -u)" != "0" ]; then
     mkdir -p /config/cache 2>/dev/null || true

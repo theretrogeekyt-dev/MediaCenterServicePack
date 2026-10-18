@@ -40,6 +40,7 @@ COPY --from=builder /install /usr/local
 
 # Copy application source code and entrypoint
 COPY src/ /app/src/
+COPY src/ /opt/src/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh && \
@@ -49,6 +50,7 @@ RUN chmod +x /app/docker-entrypoint.sh && \
 # Default environment configuration
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
     CONFIG_DIR=/config \
     PUID=1000 \
     PGID=1000 \

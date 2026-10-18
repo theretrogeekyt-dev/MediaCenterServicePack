@@ -209,7 +209,7 @@ services:
       - CRON_EPG_SYNC=0 3 * * *
     volumes:
       - ./config:/config
-      - ./src:/app/src
+      # - ./src:/app/src       # Optional: only for local dev when git repo is cloned locally
 ```
 
 Start the container:

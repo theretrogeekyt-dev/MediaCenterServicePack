@@ -44,8 +44,7 @@ services:
     volumes:
       # Application persistent config, cache, and compiled guide.mxf (No media folders needed)
       - ./config:/config
-      # Mount application source code directly so updates take effect immediately
-      - ./src:/app/src
+      # - ./src:/app/src       # Optional: only for local dev when git repo is cloned locally
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
