@@ -87,6 +87,9 @@ param (
     [switch]$SkipServiceRestart = $false,
 
     [Parameter(Mandatory = $false)]
+    [string]$SetDnsServer = $null,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Quiet = $false
 )
 
@@ -125,6 +128,31 @@ if (-not $isAdmin) {
 # 2. Prepare Working Directory
 if (-not (Test-Path $WorkingDirectory)) {
     New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
+}
+
+# 2b. Optional: Automatically configure client network DNS
+if ($SetDnsServer) {
+    $targetDns = $SetDnsServer
+    if ($SetDnsServer -eq "auto") {
+        try {
+            $uri = [System.Uri]$ServerUrl
+            $targetDns = $uri.Host
+        } catch {
+            $targetDns = "127.0.0.1"
+        }
+    }
+    if ($targetDns -and $targetDns -ne "localhost") {
+        Log-Message "Configuring Windows network DNS to point to MediaCenterServicePack server ($targetDns)..."
+        try {
+            $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+            foreach ($adapter in $adapters) {
+                Set-DnsClientServerAddress -InterfaceAlias $adapter.Name -ServerAddresses ($targetDns, "1.1.1.1") -ErrorAction SilentlyContinue
+                Log-Message "Configured DNS on adapter '$($adapter.Name)' -> $targetDns (Secondary: 1.1.1.1)" "SUCCESS"
+            }
+        } catch {
+            Log-Message "Notice: Could not configure DNS automatically ($($_.Exception.Message)). Administrator privileges required." "WARN"
+        }
+    }
 }
 
 # 3. Automatic Server Discovery (via DNS / host probes)

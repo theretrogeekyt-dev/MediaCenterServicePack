@@ -24,8 +24,13 @@ if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 :: 3. Server URL configuration (fallback if DNS is not yet active)
 set "SERVER_URL=__SERVER_URL__"
+if not "%~1"=="" if not "%~1"=="-SetDns" set "SERVER_URL=%~1"
 if "%SERVER_URL%"=="" set "SERVER_URL=http://localhost:8080"
 if "%SERVER_URL%"=="__SERVER_URL__" set "SERVER_URL=http://localhost:8080"
+
+set "DNS_FLAG="
+if /i "%~1"=="-SetDns" set "DNS_FLAG=-SetDnsServer auto"
+if /i "%~2"=="-SetDns" set "DNS_FLAG=-SetDnsServer auto"
 
 echo [1/3] Installing MediaCenterServicePack automation files to %INSTALL_DIR%...
 
@@ -39,7 +44,7 @@ if exist "%~dp0sync-wmc.ps1" (
 
 :: 4. Run PowerShell automated task installer
 echo [2/3] Configuring silent Windows background tasks and desktop shortcut...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_DIR%\sync-wmc.ps1" -InstallTask -ServerUrl "%SERVER_URL%" -Quiet
+powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_DIR%\sync-wmc.ps1" -InstallTask -ServerUrl "%SERVER_URL%" %DNS_FLAG% -Quiet
 
 :: 5. Trigger initial background update
 echo [3/3] Triggering initial background sync for TV Guide, Music artwork, and Movie metadata...

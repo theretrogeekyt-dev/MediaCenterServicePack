@@ -235,7 +235,12 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `CONFIG_DIR` | `/config` | Path to persistent storage for app settings, cache, and `guide.mxf` |
 | `ENABLE_DNS_SERVER` | `true` | Enable built-in async DNS server for zero-config WMC auto-discovery |
 | `DNS_PORT` | `53` | DNS listening port (UDP & TCP) |
-| `DNS_HOST_IP` | *Auto-detected* | LAN IP returned for WMC and discovery hostname queries |
+| `DNS_HOST_IP` | *Auto-detected* | Local LAN IP returned for local private clients |
+| `DNS_PUBLIC_IP` | *Auto-detected* | Public WAN IP or DDNS hostname returned for remote clients |
+| `DNS_AUTO_DETECT_PUBLIC_IP` | `true` | Automatically detect public WAN IP via external lookup |
+| `DNS_AUTHORITATIVE_ONLY` | `false` | When `true`, reject all non-WMC domain queries |
+| `DNS_ALLOW_EXTERNAL_RECURSION` | `false` | When `false`, refuse public WAN recursion to prevent open resolver DDoS abuse |
+| `DNS_RATE_LIMIT_PER_SEC` | `50` | Maximum queries per second per source IP (Response Rate Limiting) |
 | `UPSTREAM_DNS` | `1.1.1.1,8.8.8.8` | Comma-separated upstream DNS servers for forwarding internet queries |
 | `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct Login Name (from your account overview) |
 | `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password |
@@ -245,6 +250,32 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `EPG_SERVICE_URL` | *None* | Custom EPG service endpoint (defaults to Schedules Direct 20141201) |
 | `TMDB_API_KEY` | *None* | API Key for The Movie Database (v3) |
 | `CRON_EPG_SYNC` | `0 3 * * *` | Crontab expression for daily EPG sync (03:00) |
+
+---
+
+## Public DNS & Remote WAN Setup (Connect WMC from Anywhere)
+
+You can run MediaCenterServicePack's DNS server publicly so remote Windows Media Center clients outside your local network (e.g., family homes, laptops, remote setups) automatically discover your server and ingest TV guide and metadata.
+
+### 1. Router Port Forwarding
+On your home router or firewall, forward the following ports to your server/NAS local IP:
+- **Port 53 (UDP & TCP)** &rarr; Server IP:53 *(DNS Resolution)*
+- **Port 8080 (TCP)** &rarr; Server IP:8080 *(Web UI & Metadata API)*
+- *(Optional)* **Port 80 (TCP)** &rarr; Server IP:8080 *(Allows native Windows Media Center background tasks to reach `data.tvdownload.microsoft.com` without port numbers)*
+
+### 2. Built-in Security & DDoS Protection
+Running an open DNS resolver on the public internet can expose servers to DNS amplification attacks. MediaCenterServicePack includes enterprise-grade protection built-in:
+- **Response Rate Limiting (RRL)**: Drops query floods exceeding `DNS_RATE_LIMIT_PER_SEC` (default: 50 qps per IP).
+- **Open Resolver Protection (`DNS_ALLOW_EXTERNAL_RECURSION=false`)**: External public clients can only query authoritative WMC domains. Random non-WMC recursion queries return `REFUSED`, preventing DDoS amplification abuse.
+- **Split-Horizon DNS**: Local LAN clients querying your DNS server receive your local LAN IP (preventing NAT loopback failure), while remote internet clients receive your public WAN IP or DDNS hostname!
+
+### 3. Remote Client Configuration
+On remote Windows Media Center machines:
+- Set their IPv4 DNS server to your **Public IP** or **DDNS address**.
+- Or run:
+  ```powershell
+  .\sync-wmc.ps1 -InstallTask -SetDnsServer auto -ServerUrl http://<your-public-ip-or-ddns>:8080
+  ```
 
 ---
 

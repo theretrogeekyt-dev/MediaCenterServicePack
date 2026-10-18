@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src import __version__
 from src.config import settings
-from src.dns import dns_service, DNSStats
+from src.dns import dns_service, DNSStats, is_private_address
 from src.epg.pipeline import EPGPipeline, EPGStats, generate_fallback_epg
 from src.metadata.dvdid_generator import generate_dvd_id
 from src.metadata.movie_engine import MovieEngine
@@ -172,6 +172,7 @@ async def get_system_status():
             "dns_server_enabled": settings.ENABLE_DNS_SERVER,
             "dns_port": settings.DNS_PORT,
             "detected_host_ip": settings.detected_host_ip,
+            "public_host_ip": settings.public_host_ip,
         },
     }
 
@@ -200,13 +201,23 @@ async def download_setup_bat(request: Request):
     """
     Download pre-configured 1-click Windows setup batch script.
     Substitutes the detected server host IP so client auto-discovers immediately.
+    Smartly selects public IP if client connects from WAN.
     """
     bat_file = get_client_file("setup-wmc.bat")
     if not bat_file:
         raise HTTPException(status_code=404, detail="setup-wmc.bat not found.")
 
     content = bat_file.read_text(encoding="utf-8", errors="ignore")
-    server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
+    
+    # Check if request was made via external public hostname / IP
+    host_header = request.headers.get("host", "").split(":")[0]
+    if host_header and not is_private_address(host_header) and host_header != "localhost":
+        server_ip = host_header
+    elif settings.DNS_PUBLIC_IP:
+        server_ip = settings.public_host_ip
+    else:
+        server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
+
     server_port = settings.PORT
     server_url = f"http://{server_ip}:{server_port}"
     content = content.replace("__SERVER_URL__", server_url)
@@ -539,6 +550,7 @@ async def index_page(request: Request):
             "epg": EPGStats.to_dict(),
             "dns": DNSStats.to_dict(),
             "dns_server_ip": settings.detected_host_ip,
+            "dns_public_ip": settings.public_host_ip,
             "sd_user": settings.SCHEDULES_DIRECT_USER or "",
             "postal_code": settings.POSTAL_CODE or "",
             "has_sd_pass": bool(settings.SCHEDULES_DIRECT_PASS),

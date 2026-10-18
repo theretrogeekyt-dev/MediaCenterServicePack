@@ -1046,34 +1046,44 @@
                         <div class="card-title" style="display: flex; align-items: center; gap: 8px;">
                             <span>🌐 DNS Auto-Discovery & Zero-Config Setup</span>
                             <span class="badge badge-success" id="dns-badge">Port 53 Active</span>
+                            <span class="badge" style="background: rgba(0, 120, 215, 0.25); color: #60a5fa; border: 1px solid rgba(0, 120, 215, 0.4);">Split-Horizon &amp; DDoS Protected</span>
                         </div>
-                        <div class="card-subtitle">Connect Windows Media Center automatically with zero manual URL configuration</div>
+                        <div class="card-subtitle">Connect Windows Media Center automatically on local LAN or across the public internet</div>
                     </div>
                 </div>
 
                 <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
-                    MediaCenterServicePack includes an integrated, high-speed DNS server that intercepts legacy Microsoft TV Guide hostnames (<code>data.tvdownload.microsoft.com</code>) and auto-discovery domains (<code>mediacenter.local</code>, <code>wmc.local</code>) directly to this server while forwarding all standard internet queries.
+                    MediaCenterServicePack includes an integrated, high-speed DNS server that intercepts legacy Microsoft TV Guide hostnames (<code>data.tvdownload.microsoft.com</code>), Movie metadata (<code>dvd.windowsmedia.com</code>), Music metadata (<code>fai.music.metaservices.microsoft.com</code>), and auto-discovery domains (<code>mediacenter.local</code>, <code>wmc.local</code>). Remote clients over WAN automatically resolve to your public IP while local LAN clients resolve to your private IP.
                 </p>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
                     <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px;">
-                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">WMC Client Primary DNS Server</div>
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">Local LAN DNS Server (Home Network)</div>
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <span style="font-family: monospace; font-size: 1.15rem; color: var(--accent-cyan); font-weight: 600;" id="dns-ip-val">{{ dns_server_ip }}</span>
-                            <button class="btn btn-secondary btn-sm" onclick="copySnippet('dns-ip-val')">Copy DNS IP</button>
+                            <button class="btn btn-secondary btn-sm" onclick="copySnippet('dns-ip-val')">Copy LAN IP</button>
                         </div>
                     </div>
                     <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px;">
-                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">Automatic WMC Redirections</div>
-                        <div style="font-size: 0.82rem; color: #a0aec0; line-height: 1.4;">
-                            <code>data.tvdownload.microsoft.com</code><br>
-                            <code>mediacenter.local</code> &bull; <code>wmc.local</code> &bull; <code>openmce.local</code>
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px;">Public WAN DNS Server (Internet / Remote Clients)</div>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-family: monospace; font-size: 1.15rem; color: #a78bfa; font-weight: 600;" id="dns-public-ip-val">{{ dns_public_ip }}</span>
+                            <button class="btn btn-secondary btn-sm" onclick="copySnippet('dns-public-ip-val')">Copy Public IP</button>
                         </div>
                     </div>
                 </div>
 
-                <div style="background: rgba(0, 120, 215, 0.08); border-left: 3px solid var(--accent-blue); padding: 10px 14px; border-radius: 4px; font-size: 0.85rem; color: #cbd5e1;">
-                    <strong>Tip:</strong> Set your Media Center PC's IPv4 DNS server (or home router DNS) to <strong><code>{{ dns_server_ip }}</code></strong>. Once set, running the client sync script requires zero command line flags, and WMC automatically discovers this server on your LAN!
+                <div style="background: rgba(0, 120, 215, 0.08); border-left: 3px solid var(--accent-blue); padding: 10px 14px; border-radius: 4px; font-size: 0.85rem; color: #cbd5e1; margin-bottom: 12px;">
+                    <strong>Local LAN Setup:</strong> Set your Media Center PC's IPv4 DNS server (or home router DNS) to <strong><code>{{ dns_server_ip }}</code></strong>. WMC will automatically discover this server with zero manual configuration.
+                </div>
+
+                <div style="background: rgba(168, 85, 247, 0.08); border-left: 3px solid #a855f7; padding: 10px 14px; border-radius: 4px; font-size: 0.85rem; color: #cbd5e1;">
+                    <strong>Public Internet Setup:</strong> To allow remote WMC clients to connect over the internet:
+                    <ul style="margin: 6px 0 0 18px; padding: 0;">
+                        <li>Forward <strong>Port 53 (UDP &amp; TCP)</strong> on your router to your NAS/Server LAN IP (<code>{{ dns_server_ip }}</code>).</li>
+                        <li>Forward <strong>Port 8080 (TCP)</strong> on your router to your NAS/Server (or external Port 80 &rarr; internal 8080 if your router/ISP supports it).</li>
+                        <li>Built-in Response Rate Limiting (RRL) and Authoritative-Only recursion protection prevent open resolver abuse and DDoS attacks automatically!</li>
+                    </ul>
                 </div>
             </div>
 
