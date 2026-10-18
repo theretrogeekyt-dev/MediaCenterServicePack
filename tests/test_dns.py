@@ -206,3 +206,4 @@ async def test_wmc_http_middleware_interception():
         # 2. Normal host request does not intercept non-existent routes
         resp_normal = await client.get("/epg/tvguide", headers={"Host": "mediacenter-server:8080"})
         assert resp_normal.status_code == 404
+
