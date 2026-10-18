@@ -198,6 +198,10 @@ $webClient.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
 
 # Locate eHome utilities (loadmxf.exe, ehPrivJob.exe)
 $ehomeCandidates = @(
+    "$env:ProgramFiles\Windows Media Center\ehome",
+    "${env:ProgramFiles(x86)}\Windows Media Center\ehome",
+    "C:\Program Files\Windows Media Center\ehome",
+    "C:\Program Files (x86)\Windows Media Center\ehome",
     "$env:SystemRoot\ehome",
     "$env:SystemRoot\SysWOW64\ehome",
     "$env:SystemDrive\Windows\ehome"
@@ -540,6 +544,73 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
         } catch {
             Log-Message "Error executing loadmxf.exe: $_" "ERROR"
         }
+
+        # Auto-bind tuner scanned channels to guide listings
+        function Map-WmcChannels {
+            param([string]$ehomeDirectory)
+            try {
+                $mcStoreDll = Join-Path $ehomeDirectory "McStore.dll"
+                $ehRecObjDll = Join-Path $ehomeDirectory "ehRecObj.dll"
+                $mcepgDll = Join-Path $ehomeDirectory "mcepg.dll"
+
+                if (-not (Test-Path $mcStoreDll) -or -not (Test-Path $mcepgDll)) {
+                    Log-Message "Notice: McStore.dll or mcepg.dll not found in $ehomeDirectory. Skipping channel auto-mapping." "WARN"
+                    return
+                }
+
+                Add-Type -Path $mcStoreDll -ErrorAction SilentlyContinue
+                Add-Type -Path $ehRecObjDll -ErrorAction SilentlyContinue
+                Add-Type -Path $mcepgDll -ErrorAction SilentlyContinue
+
+                $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, "Default", $null, $true)
+                if (-not $store) { return }
+
+                $channels = New-Object Microsoft.MediaCenter.Guide.Channels($store)
+                $mergedChannels = New-Object Microsoft.MediaCenter.Guide.MergedChannels($store)
+
+                # Index guide channels that have an assigned service
+                $guideMap = @{}
+                foreach ($c in $channels) {
+                    if ($c.Lineup -and $c.Lineup.Name -eq "Local Broadcast Listings" -and $c.Service) {
+                        $numStr = $c.ChannelNumber.ToString()
+                        if (-not $guideMap.ContainsKey($numStr)) {
+                            $guideMap[$numStr] = $c
+                        }
+                    }
+                }
+
+                $mappedCount = 0
+                foreach ($mc in $mergedChannels) {
+                    $mcNum = $mc.ChannelNumber.ToString()
+                    if ($guideMap.ContainsKey($mcNum)) {
+                        $gc = $guideMap[$mcNum]
+                        $origPrimary = $mc.PrimaryChannel
+
+                        if ($mc.Service -eq $null -or $mc.Service.Id -ne $gc.Service.Id) {
+                            $mc.PrimaryChannel = $gc
+                            $mc.Service = $gc.Service
+                            $mc.HasUserMappedListings = $true
+
+                            if ($origPrimary -and -not $mc.SecondaryChannels.Contains($origPrimary)) {
+                                $mc.AddSecondaryChannel($origPrimary)
+                            }
+                            $mc.Update()
+                            $mappedCount++
+                        }
+                    }
+                }
+                $store.Dispose()
+                if ($mappedCount -gt 0) {
+                    Log-Message "Automatically mapped $mappedCount tuner channels to Guide listings." "SUCCESS"
+                } else {
+                    Log-Message "All scanned tuner channels already mapped to Guide listings." "INFO"
+                }
+            } catch {
+                Log-Message "Channel auto-mapping notice: $_" "WARN"
+            }
+        }
+
+        Map-WmcChannels -ehomeDirectory $ehomeDir
 
         if (-not $SkipServiceRestart) {
             Log-Message "Restarting WMC services..."

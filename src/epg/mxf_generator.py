@@ -22,6 +22,20 @@ DEFAULT_KEYWORDS = {
     "k12": "Music",
 }
 
+# Standard WMC MPAA Ratings (Enum: 1=G, 2=PG, 3=PG13, 4=R, 5=NC17, 6=X, 7=NR, 8=AO)
+MPAA_RATINGS = {
+    "G": "1",
+    "PG": "2",
+    "PG-13": "3",
+    "PG13": "3",
+    "R": "4",
+    "NC-17": "5",
+    "NC17": "5",
+    "X": "6",
+    "NR": "7",
+    "AO": "8",
+}
+
 
 def _bool_str(val: bool) -> str:
     """Format boolean for MXF XML attribute."""
@@ -41,28 +55,31 @@ class MXFGenerator:
         root = etree.Element("MXF")
 
         # 1. Assembly & Namespace Declarations
-        assembly = etree.SubElement(
+        mcepg_asm = etree.SubElement(
             root,
             "Assembly",
-            name="McStore.dll",
+            name="mcepg",
             version="6.1.0.0",
-            culture="neutral",
-            publicKeyToken="31bf3856ad364e35",
         )
-        namespace = etree.SubElement(assembly, "NameSpace", name="Microsoft.MediaCenter.Store")
-        for type_name in [
-            "Provider",
-            "Service",
-            "Program",
-            "ScheduleEntry",
-            "Lineup",
-            "Channel",
-            "SeriesInfo",
-            "Keyword",
-            "KeywordGroup",
-            "GuideImage",
-        ]:
-            etree.SubElement(namespace, "Type", name=type_name)
+        mcepg_ns = etree.SubElement(mcepg_asm, "NameSpace", name="Microsoft.MediaCenter.Guide")
+        etree.SubElement(mcepg_ns, "Type", name="Lineup")
+        etree.SubElement(mcepg_ns, "Type", name="Channel", parentFieldName="lineup")
+        etree.SubElement(mcepg_ns, "Type", name="Service")
+        etree.SubElement(mcepg_ns, "Type", name="ScheduleEntry", groupName="ScheduleEntries")
+        etree.SubElement(mcepg_ns, "Type", name="Program")
+        etree.SubElement(mcepg_ns, "Type", name="SeriesInfo")
+        etree.SubElement(mcepg_ns, "Type", name="Keyword")
+        etree.SubElement(mcepg_ns, "Type", name="KeywordGroup")
+        etree.SubElement(mcepg_ns, "Type", name="GuideImage")
+
+        mcstore_asm = etree.SubElement(
+            root,
+            "Assembly",
+            name="mcstore",
+            version="6.1.0.0",
+        )
+        mcstore_ns = etree.SubElement(mcstore_asm, "NameSpace", name="Microsoft.MediaCenter.Store")
+        etree.SubElement(mcstore_ns, "Type", name="Provider")
 
         # 2. Providers block
         providers = etree.SubElement(root, "Providers")
@@ -187,9 +204,11 @@ class MXFGenerator:
             if pr.is_kids:
                 attribs["isKids"] = "true"
             if pr.mpaa_rating:
-                attribs["mpaaRating"] = pr.mpaa_rating
+                cleaned_mpaa = pr.mpaa_rating.strip().upper().replace(" ", "")
+                if cleaned_mpaa in MPAA_RATINGS:
+                    attribs["mpaaRating"] = MPAA_RATINGS[cleaned_mpaa]
             if pr.half_stars_rating is not None:
-                attribs["halfStarsRating"] = str(pr.half_stars_rating)
+                attribs["halfStars"] = str(pr.half_stars_rating)
 
             # Map genres to keywords
             matched_keywords = []
@@ -254,8 +273,6 @@ class MXFGenerator:
             "id": self.db.lineup.id,
             "uid": self.db.lineup.uid,
             "name": self.db.lineup.name,
-            "displayName": self.db.lineup.display_name,
-            "primaryProvider": self.db.provider_id,
         }
         lineup_elem = etree.SubElement(lineups_elem, "Lineup", **lineup_attribs)
         channels_elem = etree.SubElement(lineup_elem, "channels")

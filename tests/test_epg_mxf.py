@@ -128,13 +128,12 @@ def test_mxf_generator_schema_compliance():
     root = etree.fromstring(mxf_bytes)
     assert root.tag == "MXF"
 
-    # Check McStore.dll assembly registration
-    assembly = root.find("Assembly")
-    assert assembly is not None
-    assert assembly.get("name") == "McStore.dll"
-    namespace = assembly.find("NameSpace")
-    assert namespace is not None
-    assert namespace.get("name") == "Microsoft.MediaCenter.Store"
+    # Check mcepg and mcstore assembly registrations
+    assemblies = root.findall("Assembly")
+    assert len(assemblies) >= 2
+    asm_names = [a.get("name") for a in assemblies]
+    assert "mcepg" in asm_names
+    assert "mcstore" in asm_names
 
     # Check Providers block
     provider = root.find(".//Providers/Provider")
