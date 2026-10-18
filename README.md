@@ -97,7 +97,10 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 ## Directory Structure
 
 ```
-.
+├── .github/
+│   └── workflows/
+│       └── docker-ci.yml        # Automated CI/CD pipeline (build, test, publish)
+├── .dockerignore                # Build context exclusion rules
 ├── Dockerfile                   # Multi-stage lightweight Python 3.12-slim build
 ├── docker-compose.yml           # Pre-configured compose stack with persistent mounts
 ├── docker-entrypoint.sh         # Dynamic non-root PUID/PGID permissions mapper
@@ -247,6 +250,30 @@ All 15 tests validate:
 - ID3v2.3 tag compliance and 500x500 Pillow image resizing.
 - End-to-end scanner directory processing.
 - FastAPI endpoints and HTML dashboard rendering.
+
+---
+
+## Continuous Integration & Automated Docker Testing
+
+The repository includes an automated GitHub Actions CI/CD pipeline defined in [`.github/workflows/docker-ci.yml`](file:///.github/workflows/docker-ci.yml):
+
+1. **Unit & Integration Testing**:
+   Executes the full 15-test pytest suite on Python 3.12.
+2. **Container Build & Live Smoke Testing**:
+   - Builds the Docker image with Docker Buildx and GitHub Actions layer caching.
+   - Spins up the container and polls `/health` until healthy.
+   - Validates that `/api/guide.mxf` produces valid XML containing `McStore.dll` and `<MXF>`.
+   - Validates `/api/status`.
+3. **Artifact Export for Local Testing**:
+   - Archives the tested Docker image (`openmce-docker-image.tar.gz`) and uploads it as a workflow artifact.
+   - You can download the artifact from any GitHub Actions run summary and load it immediately:
+     ```bash
+     gzip -d openmce-docker-image.tar.gz
+     docker load < openmce-docker-image.tar
+     docker run -d -p 8080:8080 openmce:test
+     ```
+4. **Automated Publishing**:
+   - Automatically publishes versioned and `latest` tags to the GitHub Container Registry (`ghcr.io/<owner>/<repo>`).
 
 ---
 
