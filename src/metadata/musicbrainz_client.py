@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 MB_BASE_URL = "https://musicbrainz.org/ws/2"
 CAA_BASE_URL = "https://coverartarchive.org/release"
-USER_AGENT = "Project-eHome/1.0 ( https://github.com/OpenMCE/Project-eHome )"
+USER_AGENT = "MediaCenterServicePack/1.0 ( https://github.com/theretrogeekyt-dev/MediaCenterServicePack )"
 
 
 class MusicBrainzClient:

@@ -17,7 +17,7 @@ from src.metadata.music_engine import MusicEngine
 from src.metadata.music_scanner import MusicScannerStats
 from src.scheduler.tasks import scheduler_service
 
-logger = logging.getLogger("openmce")
+logger = logging.getLogger("mediacenter")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 START_TIME = time.time()
@@ -32,7 +32,7 @@ music_engine = MusicEngine()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management."""
-    logger.info("Initializing Project eHome (OpenMCE Backend)...")
+    logger.info("Initializing MediaCenterServicePack...")
 
     # Start background scheduler
     scheduler_service.start()
@@ -49,14 +49,14 @@ async def lifespan(app: FastAPI):
     yield
 
     # Clean shutdown
-    logger.info("Shutting down Project eHome backend...")
+    logger.info("Shutting down MediaCenterServicePack backend...")
     scheduler_service.shutdown()
     await movie_engine.close()
     await music_engine.close()
 
 
 app = FastAPI(
-    title="Project eHome (OpenMCE Backend)",
+    title="MediaCenterServicePack",
     description="EPG, Movie metadata, and Music artwork server for Windows Media Center",
     version=__version__,
     lifespan=lifespan,

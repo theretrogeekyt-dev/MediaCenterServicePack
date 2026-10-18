@@ -32,7 +32,7 @@ class SchedulesDirectClient:
             resp = await self._client.post(
                 f"{SD_BASE_URL}/token",
                 json={"username": self.username, "password": self.password},
-                headers={"User-Agent": "Project-eHome/1.0 (OpenMCE)"},
+                headers={"User-Agent": "MediaCenterServicePack/1.0 (theretrogeekyt-dev)"},
             )
             data = resp.json()
             if resp.status_code == 200 and "token" in data:
@@ -54,7 +54,7 @@ class SchedulesDirectClient:
 
         headers = {
             "token": token,
-            "User-Agent": "Project-eHome/1.0 (OpenMCE)",
+            "User-Agent": "MediaCenterServicePack/1.0 (theretrogeekyt-dev)",
         }
 
         try:

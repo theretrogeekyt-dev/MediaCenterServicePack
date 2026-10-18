@@ -1,13 +1,13 @@
-# Project eHome (OpenMCE Backend)
+# MediaCenterServicePack
 
 [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](Dockerfile)
 [![WMC Tested](https://img.shields.io/badge/Windows%20Media%20Center-Vista%20%7C%207%20%7C%208.1%20%7C%2010%20%7C%2011-0078D7.svg)](#)
 
-**Project eHome (OpenMCE Backend)** is an open-source, fully self-contained Dockerized backend designed to restore Electronic Program Guide (EPG) TV listings, movie library metadata, and music album artwork to Windows Media Center (WMC).
+**MediaCenterServicePack** is an open-source, fully self-contained Dockerized backend designed to restore Electronic Program Guide (EPG) TV listings, movie library metadata, and music album artwork to Windows Media Center (WMC).
 
-Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online cloud services, Project eHome runs on-premises as a headless appliance. It ingests modern upstream data feeds (XMLTV, Schedules Direct, TMDb, MusicBrainz) and compiles schema-compliant payloads natively ingested by legacy WMC binaries (`loadmxf.exe` and `ehshell.exe`).
+Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online cloud services, MediaCenterServicePack runs on-premises as a headless appliance. It ingests modern upstream data feeds (XMLTV, Schedules Direct, TMDb, MusicBrainz) and compiles schema-compliant payloads natively ingested by legacy WMC binaries (`loadmxf.exe` and `ehshell.exe`).
 
 ---
 
@@ -146,17 +146,18 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 Clone the repository and inspect `docker-compose.yml`:
 
 ```bash
-git clone https://github.com/OpenMCE/Project-eHome.git
-cd Project-eHome
+git clone https://github.com/theretrogeekyt-dev/MediaCenterServicePack.git
+cd MediaCenterServicePack
 ```
 
 Edit `docker-compose.yml` to specify your media paths, timezone, and optional API keys:
 
 ```yaml
 services:
-  openmce:
+  mediacenter:
     build: .
-    container_name: openmce-backend
+    image: ghcr.io/theretrogeekyt-dev/mediacenterservicepack:latest
+    container_name: mediacenter-servicepack
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -271,15 +272,15 @@ The repository includes an automated GitHub Actions CI/CD pipeline defined in [`
    - Validates that `/api/guide.mxf` produces valid XML containing `McStore.dll` and `<MXF>`.
    - Validates `/api/status`.
 3. **Artifact Export for Local Testing**:
-   - Archives the tested Docker image (`openmce-docker-image.tar.gz`) and uploads it as a workflow artifact.
+   - Archives the tested Docker image (`mediacenter-servicepack-docker-image.tar.gz`) and uploads it as a workflow artifact.
    - You can download the artifact from any GitHub Actions run summary and load it immediately:
      ```bash
-     gzip -d openmce-docker-image.tar.gz
-     docker load < openmce-docker-image.tar
-     docker run -d -p 8080:8080 openmce:test
+     gzip -d mediacenter-servicepack-docker-image.tar.gz
+     docker load < mediacenter-servicepack-docker-image.tar
+     docker run -d -p 8080:8080 mediacenter-servicepack:test
      ```
 4. **Automated Publishing**:
-   - Automatically publishes versioned and `latest` tags to the GitHub Container Registry (`ghcr.io/<owner>/<repo>`).
+   - Automatically publishes versioned and `latest` tags to the GitHub Container Registry (`ghcr.io/theretrogeekyt-dev/mediacenterservicepack`).
 
 ---
 

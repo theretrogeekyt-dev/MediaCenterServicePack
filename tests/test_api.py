@@ -79,7 +79,7 @@ async def test_dashboard_html():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/")
         assert resp.status_code == 200
-        assert "Project eHome" in resp.text
+        assert "MediaCenterServicePack" in resp.text
         assert "EPG Lineup Service" in resp.text
         assert "sync-wmc.ps1" in resp.text
 

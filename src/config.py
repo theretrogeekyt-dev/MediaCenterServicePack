@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings for Project eHome (OpenMCE Backend)."""
+    """Application settings for MediaCenterServicePack."""
 
     model_config = SettingsConfigDict(
         env_file=".env",

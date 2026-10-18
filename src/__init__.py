@@ -1,5 +1,5 @@
 """
-Project eHome (OpenMCE Backend)
+MediaCenterServicePack
 Self-contained backend restoring EPG, movie metadata, and music artwork for Windows Media Center.
 """
 

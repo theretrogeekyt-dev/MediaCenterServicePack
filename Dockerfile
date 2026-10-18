@@ -20,8 +20,8 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ==========================================
 FROM python:3.12-slim AS runtime
 
-LABEL maintainer="OpenMCE Community" \
-      description="Project eHome - Open-source Windows Media Center Backend" \
+LABEL maintainer="theretrogeekyt-dev" \
+      description="MediaCenterServicePack - Service Pack & Backend for Windows Media Center" \
       version="1.0.0"
 
 # Install runtime utilities: gosu (PUID/PGID execution), curl (healthcheck), tzdata

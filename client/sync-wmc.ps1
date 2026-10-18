@@ -1,18 +1,18 @@
 <#
 .SYNOPSIS
-    Project eHome (OpenMCE) - Client Ingestion Helper for Windows Media Center.
+    MediaCenterServicePack - Client Ingestion Helper for Windows Media Center.
 
 .DESCRIPTION
-    Downloads compiled guide.mxf from the OpenMCE Docker container, ingests it
+    Downloads compiled guide.mxf from the MediaCenterServicePack Docker container, ingests it
     into Windows Media Center using Microsoft's native loadmxf.exe, and refreshes
     the eHome cache. Also supports directly downloading movie metadata and album
     artwork packages from established sources without local media folder requirements.
 
 .PARAMETER ServerUrl
-    The HTTP URL to the OpenMCE backend container, e.g. "http://192.168.1.100:8080".
+    The HTTP URL to the MediaCenterServicePack backend container, e.g. "http://192.168.1.100:8080".
 
 .PARAMETER WorkingDirectory
-    Local directory to store downloaded MXF guide files and logs. Defaults to "%ProgramData%\OpenMCE".
+    Local directory to store downloaded MXF guide files and logs. Defaults to "%ProgramData%\MediaCenterServicePack".
 
 .PARAMETER DownloadMovie
     Optional: Title or TMDb ID of a movie to directly download WMC metadata sidecars for.
@@ -37,7 +37,7 @@ param (
     [string]$ServerUrl = "http://localhost:8080",
 
     [Parameter(Mandatory = $false)]
-    [string]$WorkingDirectory = "$env:ProgramData\OpenMCE",
+    [string]$WorkingDirectory = "$env:ProgramData\MediaCenterServicePack",
 
     [Parameter(Mandatory = $false)]
     [string]$DownloadMovie = $null,
@@ -76,7 +76,7 @@ function Log-Message {
     }
 }
 
-Log-Message "=== Project eHome (OpenMCE) Windows Client Tool ==="
+Log-Message "=== MediaCenterServicePack Windows Client Tool ==="
 
 # 1. Check Administrator Privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -90,7 +90,7 @@ if (-not (Test-Path $WorkingDirectory)) {
 }
 
 $webClient = New-Object System.Net.WebClient
-$webClient.Headers.Add("User-Agent", "OpenMCE-WMC-Client/1.0")
+$webClient.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
 
 # 3. Direct Movie Metadata Download (Optional)
 if ($DownloadMovie) {

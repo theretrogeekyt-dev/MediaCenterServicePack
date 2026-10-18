@@ -91,7 +91,7 @@ jobs:
           context: .
           file: ./Dockerfile
           load: true
-          tags: openmce:test
+          tags: mediacenter-servicepack:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -101,16 +101,16 @@ jobs:
       - name: Launch container for integration testing
         run: |
           docker run -d \
-            --name openmce-ci-instance \
+            --name mediacenter-servicepack-test \
             -p 8080:8080 \
             -e PUID=1000 \
             -e PGID=1000 \
             -e TZ=UTC \
-            openmce:test
+            mediacenter-servicepack:test
 
       - name: Wait for container healthy status
         run: |
-          echo "Waiting for OpenMCE container to boot and initialize EPG..."
+          echo "Waiting for MediaCenterServicePack container to boot and initialize EPG..."
           for i in {1..30}; do
             STATUS=$(curl -s http://localhost:8080/health | grep -o '"status":"[^"]*"' || true)
             echo "Attempt $i: $STATUS"
@@ -121,7 +121,7 @@ jobs:
             sleep 2
           done
           echo "Container health check timed out!"
-          docker logs openmce-ci-instance
+          docker logs mediacenter-servicepack-test
           exit 1
 
       - name: Validate EPG guide.mxf endpoint
@@ -143,9 +143,9 @@ jobs:
       - name: Clean up test container
         if: always()
         run: |
-          docker logs openmce-ci-instance || true
-          docker stop openmce-ci-instance || true
-          docker rm openmce-ci-instance || true
+          docker logs mediacenter-servicepack-test || true
+          docker stop mediacenter-servicepack-test || true
+          docker rm mediacenter-servicepack-test || true
 
       # ==========================================
       # Export Image Artifact for Local Testing
@@ -153,13 +153,13 @@ jobs:
       - name: Export Docker image tarball for manual download
         run: |
           echo "Saving Docker image to tar.gz archive..."
-          docker save openmce:test | gzip > openmce-docker-image.tar.gz
+          docker save mediacenter-servicepack:test | gzip > mediacenter-servicepack-docker-image.tar.gz
 
       - name: Upload Docker image as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openmce-docker-image
-          path: openmce-docker-image.tar.gz
+          name: mediacenter-servicepack-docker-image
+          path: mediacenter-servicepack-docker-image.tar.gz
           retention-days: 14
 
       # ==========================================
