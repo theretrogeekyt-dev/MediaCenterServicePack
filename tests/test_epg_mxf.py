@@ -6,6 +6,7 @@ import pytest
 from src.epg.models import Channel, EPGDatabase, Lineup, Program, ScheduleEntry, SeriesInfo
 from src.epg.mxf_generator import MXFGenerator
 from src.epg.pipeline import EPGPipeline, EPGStats
+from src.epg.schedules_direct import SchedulesDirectClient
 from src.epg.xmltv_parser import XMLTVParser, parse_xmltv_date
 
 MOCK_XMLTV = b"""<?xml version="1.0" encoding="utf-8"?>
@@ -209,5 +210,121 @@ async def test_epg_pipeline_generation(tmp_path: Path):
     # Ensure XML structure is valid
     root = etree.parse(str(output_path)).getroot()
     assert root.tag == "MXF"
+
+
+@pytest.mark.asyncio
+async def test_schedules_direct_client_direct_api_key(monkeypatch):
+    """Verify SchedulesDirectClient utilizes API key directly without username/password."""
+    client = SchedulesDirectClient(token="mock_sd_api_key_xyz")
+    assert await client.login() == "mock_sd_api_key_xyz"
+
+    async def mock_get(url, headers=None):
+        class MockResp:
+            def __init__(self, status_code, json_data):
+                self.status_code = status_code
+                self._json = json_data
+
+            def json(self):
+                return self._json
+
+        if "/status" in url:
+            return MockResp(200, {
+                "account": {"expires": "2027-01-01T00:00:00Z"},
+                "lineups": [{"lineup": "USA-OTA-10001", "name": "OTA Broadcast"}]
+            })
+        elif "/lineups/USA-OTA-10001" in url:
+            return MockResp(200, {
+                "stations": [
+                    {"stationID": "1001", "name": "WABC HD", "callsign": "WABC", "logo": {"URL": "http://img/wabc.png"}},
+                    {"stationID": "1002", "name": "WNBC HD", "callsign": "WNBC", "logo": {"URL": "http://img/wnbc.png"}},
+                ],
+                "map": [
+                    {"stationID": "1001", "channel": "7.1"},
+                    {"stationID": "1002", "channel": "4.1"},
+                ]
+            })
+        return MockResp(404, {})
+
+    async def mock_post(url, json=None, headers=None):
+        class MockResp:
+            def __init__(self, status_code, json_data):
+                self.status_code = status_code
+                self._json = json_data
+
+            def json(self):
+                return self._json
+
+        if "/schedules" in url:
+            return MockResp(200, [
+                {
+                    "stationID": "1001",
+                    "programs": [
+                        {
+                            "programID": "EP001001001",
+                            "airDateTime": "2026-10-18T20:00:00Z",
+                            "duration": 3600,
+                            "videoProperties": ["HDTV"],
+                            "audioProperties": ["STEREO"],
+                            "new": True
+                        }
+                    ]
+                }
+            ])
+        elif "/programs" in url:
+            return MockResp(200, [
+                {
+                    "programID": "EP001001001",
+                    "titles": [{"title120": "Direct API Primetime"}],
+                    "episodeTitle150": "The Test Episode",
+                    "descriptions": {"description100": [{"description": "Great show"}]},
+                    "genres": ["Drama"],
+                    "entityType": "Episode"
+                }
+            ])
+        return MockResp(404, {})
+
+    monkeypatch.setattr(client._client, "get", mock_get)
+    monkeypatch.setattr(client._client, "post", mock_post)
+
+    db = await client.fetch_guide()
+    assert db is not None
+    assert len(db.channels) == 2
+    assert "1001" in db.channels
+    assert db.channels["1001"].call_sign == "WABC"
+    assert db.channels["1001"].number == 7
+    assert db.channels["1001"].sub_number == 1
+    assert len(db.schedule_entries) > 0
+    assert "EP001001001" in db.programs
+    assert db.programs["EP001001001"].title == "Direct API Primetime"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_epg_pipeline_with_direct_service_api_key(monkeypatch):
+    """Verify EPGPipeline uses direct service API key when available and updates stats source."""
+    async def mock_fetch_guide(self):
+        db = EPGDatabase(provider_id="p_direct", provider_name="ServiceDirect")
+        db.channels["ch_1"] = Channel(id="ch_1", service_id="s_1", call_sign="DIRECT", name="Direct Channel", number=1)
+        db.lineup = Lineup(channels=list(db.channels.values()))
+        db.programs["pr_1"] = Program(id="pr_1", title="Direct Show")
+        db.schedule_entries.append(
+            ScheduleEntry(
+                program_id="pr_1",
+                service_id="s_1",
+                start_time=datetime.now(timezone.utc),
+                duration_seconds=3600
+            )
+        )
+        return db
+
+    monkeypatch.setattr(SchedulesDirectClient, "fetch_guide", mock_fetch_guide)
+
+    pipeline = EPGPipeline()
+    out = await pipeline.run(api_key="direct_secret_api_key_123")
+    assert out.exists()
+    assert EPGStats.status == "Healthy"
+    assert EPGStats.source == "Direct Service API (Schedules Direct)"
+    assert EPGStats.channels_count == 1
+
 
 

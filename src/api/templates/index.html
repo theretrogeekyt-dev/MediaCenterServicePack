@@ -331,9 +331,16 @@
                         </div>
                     </div>
 
-                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px;">
                         Last Sync: <span id="epg-last-sync">{{ epg.last_sync or 'Never' }}</span>
                     </p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+                        Source: <span id="epg-source" style="color: var(--accent-cyan); font-weight: 600;">{{ epg.source or 'Standard Broadcast Guide' }}</span>
+                    </p>
+
+                    <div style="margin-bottom: 14px;">
+                        <input type="password" id="epg-api-key" class="search-input" style="font-size: 0.85rem; padding: 6px 12px; width: 100%;" placeholder="Service API Key (Schedules Direct / EPG token)">
+                    </div>
                 </div>
 
                 <div class="card-actions">
@@ -487,7 +494,12 @@
         async function triggerEPGSync() {
             showToast('Triggering EPG synchronization...');
             try {
-                const res = await fetch('/api/epg/sync', { method: 'POST' });
+                const apiKey = document.getElementById('epg-api-key')?.value.trim();
+                let url = '/api/epg/sync';
+                if (apiKey) {
+                    url += '?api_key=' + encodeURIComponent(apiKey);
+                }
+                const res = await fetch(url, { method: 'POST' });
                 const data = await res.json();
                 showToast(data.message || 'EPG synchronization complete!');
                 setTimeout(() => window.location.reload(), 1500);

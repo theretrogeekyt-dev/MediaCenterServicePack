@@ -17,7 +17,8 @@ Rather than relying on fragile SSL/TLS proxying or deprecated Microsoft online c
 ## Key Features
 
 1. **EPG Lineup Service**:
-   - Ingests XMLTV feeds and Schedules Direct JSON APIs.
+   - Ingests TV listings directly using a service API key (`EPG_API_KEY` or `SCHEDULES_DIRECT_KEY`), querying Schedules Direct / EPG services directly without requiring client files or username/passwords.
+   - Also supports standard upstream XMLTV feeds and local XMLTV files.
    - Compiles schema-compliant `.mxf` (Media Center XML Format) payloads adhering to Microsoft's `McStore.dll` schema (`Channel`, `Lineup`, `ScheduleEntry`, `Program`, `SeriesInfo`, `Keyword`, `GuideImage`).
    - Enables native Windows Media Center "Record Series" DVR scheduling.
    - Hosted at `http://<docker-host>:8080/api/guide.mxf`.
@@ -165,6 +166,7 @@ services:
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
+      - EPG_API_KEY=your_service_api_key_here
       - XMLTV_URL=https://example.com/epg.xml
       - TMDB_API_KEY=your_tmdb_api_key_here
       - CRON_EPG_SYNC=0 3 * * *
@@ -193,11 +195,13 @@ Access the dashboard at `http://<docker-host>:8080/`.
 | `PGID` | `1000` | Group ID for volume file ownership |
 | `PORT` | `8080` | Internal HTTP listening port |
 | `CONFIG_DIR` | `/config` | Path to persistent storage for app settings, cache, and `guide.mxf` |
+| `EPG_API_KEY` | *None* | Direct Service API key / token (Schedules Direct or EPG service) |
+| `SCHEDULES_DIRECT_KEY` | *None* | Schedules Direct direct API token alias |
+| `EPG_SERVICE_URL` | *None* | Custom EPG service endpoint (defaults to Schedules Direct 20141201) |
 | `XMLTV_URL` | *None* | HTTP/HTTPS URL to an upstream XMLTV feed |
 | `XMLTV_FILE` | *None* | Local path to an XMLTV file (e.g. `/config/guide.xml`) |
-| `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct account username |
-| `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password |
-| `SCHEDULES_DIRECT_KEY` | *None* | Schedules Direct API token (optional) |
+| `SCHEDULES_DIRECT_USER` | *None* | Schedules Direct account username (if no API key used) |
+| `SCHEDULES_DIRECT_PASS` | *None* | Schedules Direct account password (if no API key used) |
 | `TMDB_API_KEY` | *None* | API Key for The Movie Database (v3) |
 | `CRON_EPG_SYNC` | `0 3 * * *` | Crontab expression for daily EPG sync (03:00) |
 
@@ -238,7 +242,7 @@ powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl 
 - `GET /health`: JSON container health check reporting service uptime and EPG status.
 - `GET /api/guide.mxf`: Serves compiled MXF XML payload (`loadmxf.exe` target).
 - `GET /api/status`: Detailed system metrics, configured paths, channel counts, and job schedules.
-- `POST /api/epg/sync`: Manually triggers immediate EPG download and MXF generation.
+- `POST /api/epg/sync`: Manually triggers immediate EPG compilation, optionally accepting `?api_key=...` or `?source_url=...`.
 - `GET /api/metadata/movies/search`: Directly search TMDb movies (`?query=...&year=...`).
 - `GET /api/metadata/movies/{id}`: Directly retrieve full TMDb movie details.
 - `GET /api/metadata/movies/{id}/download`: Download complete WMC movie package (.zip) with `dvdid.xml` and `folder.jpg`.

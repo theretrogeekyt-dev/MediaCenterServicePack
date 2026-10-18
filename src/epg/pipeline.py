@@ -20,6 +20,7 @@ class EPGStats:
     programs_count: int = 0
     schedule_count: int = 0
     status: str = "Uninitialized"
+    source: str = "None"
     last_error: Optional[str] = None
 
     @classmethod
@@ -30,6 +31,7 @@ class EPGStats:
             "programs_count": cls.programs_count,
             "schedule_count": cls.schedule_count,
             "status": cls.status,
+            "source": cls.source,
             "last_error": cls.last_error,
         }
 
@@ -166,48 +168,83 @@ def generate_fallback_epg() -> EPGDatabase:
 class EPGPipeline:
     """Coordinates fetching, parsing, generating, and storing guide.mxf."""
 
-    async def run(self, source_url: Optional[str] = None) -> Path:
-        """Run the full EPG compilation pipeline."""
+    async def run(
+        self,
+        source_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> Path:
+        """Run the full EPG compilation pipeline, using service API key directly if available."""
         EPGStats.status = "Running"
         logger.info("Starting EPG sync pipeline...")
 
+        target_api_key = api_key or settings.epg_service_key
         target_url = source_url or settings.XMLTV_URL
         db: Optional[EPGDatabase] = None
+        source_name = "None"
 
         try:
-            # 1. Fetch from XMLTV URL if specified
-            if target_url:
+            # 1. Use Direct Service API Key if available (Schedules Direct / EPG Service)
+            if target_api_key:
+                logger.info("Service API key available. Querying EPG service directly...")
+                sd = SchedulesDirectClient(
+                    token=target_api_key,
+                    base_url=settings.EPG_SERVICE_URL,
+                )
+                try:
+                    db = await sd.fetch_guide()
+                    if db and len(db.channels) > 0:
+                        source_name = "Direct Service API (Schedules Direct)"
+                        logger.info(
+                            f"Successfully retrieved guide directly via service API key: "
+                            f"{len(db.channels)} channels, {len(db.schedule_entries)} entries."
+                        )
+                except Exception as e:
+                    logger.error(f"Direct service API query failed: {e}")
+                finally:
+                    await sd.close()
+
+            # 2. Fetch from XMLTV URL (passing API key in headers if configured)
+            if not db and target_url:
                 logger.info(f"Fetching XMLTV feed from URL: {target_url}")
+                headers = {"User-Agent": "MediaCenterServicePack/1.0 (theretrogeekyt-dev)"}
+                if target_api_key:
+                    headers["X-Api-Key"] = target_api_key
+                    headers["Authorization"] = f"Bearer {target_api_key}"
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.get(target_url)
+                    resp = await client.get(target_url, headers=headers)
                     resp.raise_for_status()
                     parser = XMLTVParser()
                     db = parser.parse(resp.content)
+                    source_name = "XMLTV Feed (URL)"
 
-            # 2. Check local XMLTV file if URL wasn't configured
-            elif settings.XMLTV_FILE and Path(settings.XMLTV_FILE).is_file():
+            # 3. Check local XMLTV file if URL wasn't configured
+            elif not db and settings.XMLTV_FILE and Path(settings.XMLTV_FILE).is_file():
                 logger.info(f"Loading local XMLTV file: {settings.XMLTV_FILE}")
                 content = Path(settings.XMLTV_FILE).read_bytes()
                 parser = XMLTVParser()
                 db = parser.parse(content)
+                source_name = "Local XMLTV File"
 
-            # 3. Check Schedules Direct API
-            elif settings.SCHEDULES_DIRECT_USER and settings.SCHEDULES_DIRECT_PASS:
-                logger.info("Querying Schedules Direct API...")
+            # 4. Check Schedules Direct username / password (if no direct API key was provided)
+            elif not db and settings.SCHEDULES_DIRECT_USER and settings.SCHEDULES_DIRECT_PASS:
+                logger.info("Querying Schedules Direct API via username and password...")
                 sd = SchedulesDirectClient(
                     username=settings.SCHEDULES_DIRECT_USER,
                     password=settings.SCHEDULES_DIRECT_PASS,
-                    token=settings.SCHEDULES_DIRECT_KEY,
+                    base_url=settings.EPG_SERVICE_URL,
                 )
                 try:
                     db = await sd.fetch_guide()
+                    if db and len(db.channels) > 0:
+                        source_name = "Schedules Direct (User/Pass)"
                 finally:
                     await sd.close()
 
-            # 4. Fallback default guide
+            # 5. Fallback default broadcast guide
             if not db or len(db.channels) == 0:
                 logger.info("No external upstream feed configured or available. Generating standard broadcast guide.")
                 db = generate_fallback_epg()
+                source_name = "Standard Broadcast Guide (Fallback)"
 
             # Generate MXF XML
             logger.info("Compiling EPG data into Windows Media Center MXF format...")
@@ -225,11 +262,12 @@ class EPGPipeline:
             EPGStats.programs_count = len(db.programs)
             EPGStats.schedule_count = len(db.schedule_entries)
             EPGStats.status = "Healthy"
+            EPGStats.source = source_name
             EPGStats.last_error = None
 
             logger.info(
                 f"Successfully generated {output_file} ({len(mxf_bytes)} bytes) with "
-                f"{EPGStats.channels_count} channels and {EPGStats.schedule_count} schedule entries."
+                f"{EPGStats.channels_count} channels and {EPGStats.schedule_count} schedule entries [Source: {source_name}]."
             )
             return output_file
 

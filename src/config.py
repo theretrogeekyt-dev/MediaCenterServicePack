@@ -26,17 +26,24 @@ class Settings(BaseSettings):
     CONFIG_DIR: str = "/config"
 
     # Upstream Guide sources
-    XMLTV_URL: Optional[str] = None
-    XMLTV_FILE: Optional[str] = None
+    EPG_API_KEY: Optional[str] = None
+    SCHEDULES_DIRECT_KEY: Optional[str] = None
     SCHEDULES_DIRECT_USER: Optional[str] = None
     SCHEDULES_DIRECT_PASS: Optional[str] = None
-    SCHEDULES_DIRECT_KEY: Optional[str] = None
+    EPG_SERVICE_URL: Optional[str] = None
+    XMLTV_URL: Optional[str] = None
+    XMLTV_FILE: Optional[str] = None
 
     # Metadata API keys
     TMDB_API_KEY: Optional[str] = None
 
     # Cron schedules
     CRON_EPG_SYNC: str = "0 3 * * *"       # Daily at 03:00
+
+    @property
+    def epg_service_key(self) -> Optional[str]:
+        """Returns direct service API key if configured (EPG_API_KEY or SCHEDULES_DIRECT_KEY)."""
+        return self.EPG_API_KEY or self.SCHEDULES_DIRECT_KEY
 
     @property
     def config_path(self) -> Path:

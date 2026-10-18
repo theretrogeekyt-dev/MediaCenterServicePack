@@ -14,13 +14,18 @@ services:
       - PUID=1000
       - PGID=1000
 
-      # Upstream EPG Feed configuration
-      # Provide an XMLTV HTTP URL (e.g. from an IPTV grabber, HDHomeRun, or WebGrab+Plus)
+      # Direct EPG Service API Key (Primary: Schedules Direct / EPG Service Token)
+      # When provided, the backend queries the service directly with zero client dependencies:
+      - EPG_API_KEY=
+      - SCHEDULES_DIRECT_KEY=
+      # Optional: Custom EPG service endpoint (defaults to Schedules Direct):
+      - EPG_SERVICE_URL=
+
+      # Alternative: Upstream XMLTV Feed URL (e.g. from IPTV, HDHomeRun, or WebGrab+Plus)
       - XMLTV_URL=
-      # Or configure Schedules Direct credentials:
+      # Alternative: Legacy Schedules Direct user/pass credentials (if no direct API key is used)
       - SCHEDULES_DIRECT_USER=
       - SCHEDULES_DIRECT_PASS=
-      - SCHEDULES_DIRECT_KEY=
 
       # Metadata API Keys (for direct TMDb queries)
       # Get a free API key at https://www.themoviedb.org/settings/api

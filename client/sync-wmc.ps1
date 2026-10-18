@@ -46,6 +46,12 @@ param (
     [string]$DownloadAlbum = $null,
 
     [Parameter(Mandatory = $false)]
+    [string]$ApiKey = $null,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SyncNow = $false,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipServiceRestart = $false,
 
     [Parameter(Mandatory = $false)]
@@ -168,6 +174,21 @@ if (-not $DownloadMovie -and -not $DownloadAlbum) {
     if (-not $loadMxfPath) {
         Log-Message "Could not locate loadmxf.exe. Is Windows Media Center installed?" "WARN"
     } else {
+        # Trigger EPG sync on backend if API key or SyncNow was provided
+        if ($ApiKey -or $SyncNow) {
+            $syncEndpoint = "$($ServerUrl.TrimEnd('/'))/api/epg/sync"
+            if ($ApiKey) {
+                $syncEndpoint += "?api_key=$([System.Uri]::EscapeDataString($ApiKey))"
+            }
+            Log-Message "Triggering backend EPG sync with service API key..."
+            try {
+                $syncResp = Invoke-RestMethod -Uri $syncEndpoint -Method Post
+                Log-Message "Backend sync successful: $($syncResp.message)" "SUCCESS"
+            } catch {
+                Log-Message "Notice: Backend sync trigger reported: $_" "WARN"
+            }
+        }
+
         $mxfLocalPath = Join-Path $WorkingDirectory "guide.mxf"
         $mxfEndpoint = "$($ServerUrl.TrimEnd('/'))/api/guide.mxf"
         Log-Message "Downloading guide payload from: $mxfEndpoint"

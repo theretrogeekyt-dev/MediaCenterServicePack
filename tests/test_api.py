@@ -60,6 +60,18 @@ async def test_manual_epg_sync():
 
 
 @pytest.mark.asyncio
+async def test_manual_epg_sync_with_api_key():
+    """Verify manual sync trigger endpoint with direct service api_key."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/epg/sync?api_key=mock_service_key_123")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert "Source:" in data["message"]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_html():
     """Verify HTML dashboard renders."""
     transport = ASGITransport(app=app)

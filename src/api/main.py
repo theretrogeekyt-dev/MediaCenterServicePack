@@ -85,8 +85,9 @@ async def get_system_status():
         "jobs": scheduler_service.get_job_info(),
         "config": {
             "config_dir": str(settings.config_path),
+            "service_api_key_configured": bool(settings.epg_service_key),
+            "schedules_direct_configured": bool(settings.SCHEDULES_DIRECT_USER or settings.epg_service_key),
             "xmltv_configured": bool(settings.XMLTV_URL or settings.XMLTV_FILE),
-            "schedules_direct_configured": bool(settings.SCHEDULES_DIRECT_USER),
             "tmdb_configured": bool(settings.TMDB_API_KEY),
         },
     }
@@ -117,14 +118,17 @@ async def get_guide_mxf():
 
 
 @app.post("/api/epg/sync")
-async def trigger_epg_sync(source_url: Optional[str] = None):
-    """Manually trigger an EPG synchronization pass."""
+async def trigger_epg_sync(
+    source_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+):
+    """Manually trigger an EPG synchronization pass, optionally supplying a direct service API key."""
     try:
         pipeline = EPGPipeline()
-        output_file = await pipeline.run(source_url=source_url)
+        output_file = await pipeline.run(source_url=source_url, api_key=api_key)
         return {
             "status": "success",
-            "message": f"EPG compiled successfully. Output written to {output_file.name}",
+            "message": f"EPG compiled successfully. Source: {EPGStats.source}. Output written to {output_file.name}",
             "stats": EPGStats.to_dict(),
         }
     except Exception as e:
