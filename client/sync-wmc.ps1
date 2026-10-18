@@ -610,7 +610,73 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
             }
         }
 
+        function Ensure-WmcRegion {
+            param([string]$ehomeDirectory, [string]$PostalCode = "67147")
+            try {
+                $mcStoreDll = Join-Path $ehomeDirectory "McStore.dll"
+                $mcepgDll = Join-Path $ehomeDirectory "mcepg.dll"
+
+                if (-not (Test-Path $mcStoreDll) -or -not (Test-Path $mcepgDll)) {
+                    return
+                }
+
+                Add-Type -Path $mcStoreDll -ErrorAction SilentlyContinue
+                Add-Type -Path $mcepgDll -ErrorAction SilentlyContinue
+
+                $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, "Default", $null, $true)
+                if (-not $store) { return }
+
+                $regions = New-Object Microsoft.MediaCenter.Guide.Regions($store)
+                $lineups = New-Object Microsoft.MediaCenter.Guide.Lineups($store)
+
+                $lineup = $null
+                foreach ($l in $lineups) {
+                    if ($l.Name -eq "Local Broadcast Listings") {
+                        $lineup = $l
+                        break
+                    }
+                }
+                if (-not $lineup) {
+                    $store.Dispose()
+                    return
+                }
+
+                # Clean up any corrupt or empty regions using ObjectCollectionDeleteRecords
+                $regType = $regions.ObjectType
+                $delMethod = $store.GetType().GetMethod("ObjectCollectionDeleteRecords", [System.Reflection.BindingFlags]"NonPublic,Public,Instance")
+                $toDelete = @()
+                foreach ($r in $regions) {
+                    if (-not $r.Country -or -not $r.RegionCode -or ($r.Lineups | Measure-Object).Count -eq 0) {
+                        $toDelete += $r.Id.ToString()
+                    }
+                }
+                if ($toDelete.Count -gt 0 -and $delMethod) {
+                    $delMethod.Invoke($store, @($regType, ($toDelete -join ",")))
+                }
+
+                # Verify or register RegionKey("US", $PostalCode)
+                $key = New-Object Microsoft.MediaCenter.Guide.RegionKey("US", $PostalCode)
+                $found = $regions[$key]
+                if (-not $found -or ($found.Lineups | Measure-Object).Count -eq 0) {
+                    $reg = New-Object Microsoft.MediaCenter.Guide.Region
+                    $reg.Country = "US"
+                    $reg.RegionCode = $PostalCode
+                    $regions.Add($reg)
+                    $reg.Lineups.Add($lineup)
+                    $reg.Update()
+                    Log-Message "Configured WMC guide Region for US $PostalCode." "SUCCESS"
+                } else {
+                    Log-Message "WMC guide Region for US $PostalCode is active and verified." "INFO"
+                }
+
+                $store.Dispose()
+            } catch {
+                Log-Message "Region setup notice: $_" "WARN"
+            }
+        }
+
         Map-WmcChannels -ehomeDirectory $ehomeDir
+        Ensure-WmcRegion -ehomeDirectory $ehomeDir -PostalCode "67147"
 
         if (-not $SkipServiceRestart) {
             Log-Message "Restarting WMC services..."
