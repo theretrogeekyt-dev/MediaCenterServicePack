@@ -177,7 +177,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-      - "80:8080"
+      # - "80:8080"        # Optional: uncomment only if host port 80 is free (NAS devices like Synology DSM use port 80)
       - "53:53/udp"
       - "53:53/tcp"
     environment:
