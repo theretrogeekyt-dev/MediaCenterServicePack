@@ -641,6 +641,13 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                     return
                 }
 
+                # Ensure lineup is tagged with ATSC / Antenna types for Headend matching
+                if (-not $lineup.LineupTypes -or -not $lineup.LineupTypes.Contains("ATSC")) {
+                    $lineup.LineupTypes = "ATSC;Antenna;TER;Cable"
+                    $lineup.AlternateLineupTypes = "ATSC;Antenna;TER;Cable"
+                    $lineup.Update()
+                }
+
                 # Clean up any corrupt or empty regions using ObjectCollectionDeleteRecords
                 $regType = $regions.ObjectType
                 $delMethod = $store.GetType().GetMethod("ObjectCollectionDeleteRecords", [System.Reflection.BindingFlags]"NonPublic,Public,Instance")

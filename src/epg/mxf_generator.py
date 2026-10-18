@@ -273,6 +273,7 @@ class MXFGenerator:
             "id": self.db.lineup.id,
             "uid": self.db.lineup.uid,
             "name": self.db.lineup.name,
+            "lineupTypes": "ATSC;Antenna;TER;Cable",
         }
         lineup_elem = etree.SubElement(lineups_elem, "Lineup", **lineup_attribs)
         channels_elem = etree.SubElement(lineup_elem, "channels")
