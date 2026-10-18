@@ -58,14 +58,37 @@ class Settings(BaseSettings):
         """Resolved path to the compiled guide.mxf file."""
         return self.config_path / "guide.mxf"
 
-    @property
-    def cache_path(self) -> Path:
-        """Resolved path to local cache directory."""
-        cache_dir = self.config_path / "cache"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir
+    def load_overrides(self):
+        """Load persistent user overrides from /config/settings.json if present."""
+        overrides_file = self.config_path / "settings.json"
+        if overrides_file.exists():
+            try:
+                import json
+                data = json.loads(overrides_file.read_text(encoding="utf-8"))
+                for k, v in data.items():
+                    if hasattr(self, k) and v is not None and v != "":
+                        setattr(self, k, v)
+            except Exception:
+                pass
+
+    def save_overrides(self, updates: dict):
+        """Save persistent user overrides to /config/settings.json."""
+        import json
+        for k, v in updates.items():
+            if hasattr(self, k) and v is not None:
+                setattr(self, k, v)
+        overrides_file = self.config_path / "settings.json"
+        data = {
+            "SCHEDULES_DIRECT_USER": self.SCHEDULES_DIRECT_USER,
+            "SCHEDULES_DIRECT_PASS": self.SCHEDULES_DIRECT_PASS,
+            "POSTAL_CODE": self.POSTAL_CODE,
+            "EPG_API_KEY": self.EPG_API_KEY,
+            "TMDB_API_KEY": self.TMDB_API_KEY,
+        }
+        overrides_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 # Global settings singleton
 settings = Settings()
+settings.load_overrides()
 

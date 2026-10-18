@@ -253,14 +253,17 @@ powershell.exe -ExecutionPolicy Bypass -File C:\Scripts\sync-wmc.ps1 -ServerUrl 
 - `GET /health`: JSON container health check reporting service uptime and EPG status.
 - `GET /api/guide.mxf`: Serves compiled MXF XML payload (`loadmxf.exe` target).
 - `GET /api/status`: Detailed system metrics, configured paths, channel counts, and job schedules.
+- `GET /api/epg/channels`: Formatted active channel lineup and upcoming schedule entries for web browser viewing.
 - `POST /api/epg/sync`: Manually triggers immediate EPG compilation, optionally accepting `?api_key=...` or `?source_url=...`.
+- `POST /api/epg/configure`: Updates upstream credentials (Schedules Direct / TMDb) in `/config/settings.json` and runs an EPG sync.
 - `GET /api/metadata/movies/search`: Directly search TMDb movies (`?query=...&year=...`).
 - `GET /api/metadata/movies/{id}`: Directly retrieve full TMDb movie details.
+- `GET /api/metadata/movies/{id}/dvdid`: Directly preview generated WMC `dvdid.xml` (5.0 MDR-DVD XML).
 - `GET /api/metadata/movies/{id}/download`: Download complete WMC movie package (.zip) with `dvdid.xml` and `folder.jpg`.
 - `GET /api/metadata/music/search`: Directly search MusicBrainz album releases (`?query=...&artist=...`).
 - `GET /api/metadata/music/{mbid}`: Directly retrieve release details and track list.
 - `GET /api/metadata/music/{mbid}/download`: Download complete WMC music package (.zip) with 500x500 `Folder.jpg` and `AlbumArtSmall.jpg`.
-- `GET /`: Management web dashboard with direct interactive metadata search & download tool.
+- `GET /`: Modern Web Suite dashboard featuring tabbed navigation: TV Guide & Lineup Viewer, Movie Studio, Music Studio, Dynamic WMC Client Setup, and System Diagnostics.
 
 ---
 
@@ -273,13 +276,13 @@ pip install -r requirements.txt pytest pytest-asyncio
 python -m pytest -v
 ```
 
-All 18 tests validate:
+All 21 tests validate:
 - Schedules Direct API token authentication, SHA-1 password hashing, and auto lineup mapping.
 - Microsoft MXF schema compliance (`McStore.dll`, `Providers`, `With`, `ScheduleEntries`, `Lineup`).
-- `dvdid.xml` 5.0 MDR-DVD schema validation.
+- `dvdid.xml` 5.0 MDR-DVD schema validation and XML preview endpoint.
 - ID3v2.3 tag compliance and 500x500 Pillow image resizing.
 - Direct TMDb & MusicBrainz online metadata queries and WMC ZIP bundle generation.
-- FastAPI endpoints and HTML dashboard rendering.
+- Dynamic LAN host detection, EPG configuration endpoints, and rich HTML dashboard rendering.
 
 ---
 

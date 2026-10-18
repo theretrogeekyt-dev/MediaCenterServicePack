@@ -104,6 +104,13 @@ class MovieEngine:
         logger.info(f"Directly downloaded WMC metadata for '{pkg['movie']['title']}' to {target_dir}")
         return target_dir
 
+    async def get_dvdid_xml(self, movie_id_or_title: str, year: Optional[int] = None) -> Optional[str]:
+        """Directly generate and return dvdid.xml string for previewing."""
+        pkg = await self.get_wmc_package(movie_id_or_title, year)
+        if not pkg:
+            return None
+        return pkg["dvdid_xml"].decode("utf-8")
+
     async def close(self):
         await self.tmdb_client.close()
 

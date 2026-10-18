@@ -167,6 +167,7 @@ def generate_fallback_epg() -> EPGDatabase:
 
 class EPGPipeline:
     """Coordinates fetching, parsing, generating, and storing guide.mxf."""
+    last_database: Optional[EPGDatabase] = None
 
     async def run(
         self,
@@ -257,6 +258,7 @@ class EPGPipeline:
             output_file = settings.guide_mxf_file
             output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_bytes(mxf_bytes)
+            EPGPipeline.last_database = db
 
             # Record stats
             EPGStats.last_sync = datetime.now(timezone.utc)
@@ -275,7 +277,24 @@ class EPGPipeline:
 
         except Exception as e:
             logger.error(f"EPG Pipeline failed: {e}", exc_info=True)
-            EPGStats.status = "Error"
             EPGStats.last_error = str(e)
-            raise
+            try:
+                # Ensure a working guide is always present even if an error occurred
+                fallback_db = generate_fallback_epg()
+                EPGPipeline.last_database = fallback_db
+                gen = MXFGenerator(fallback_db)
+                mxf_data = gen.generate()
+                output_file = settings.guide_mxf_file
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                output_file.write_bytes(mxf_data)
+                EPGStats.last_sync = datetime.now(timezone.utc)
+                EPGStats.channels_count = len(fallback_db.channels)
+                EPGStats.programs_count = len(fallback_db.programs)
+                EPGStats.schedule_count = len(fallback_db.schedule_entries)
+                EPGStats.status = "Degraded"
+                EPGStats.source = "Standard Broadcast Guide (Fallback)"
+                return output_file
+            except Exception:
+                EPGStats.status = "Error"
+                raise e
 

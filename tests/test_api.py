@@ -81,3 +81,49 @@ async def test_dashboard_html():
         assert "MediaCenterServicePack" in resp.text
         assert "EPG Lineup Service" in resp.text
         assert "sync-wmc.ps1" in resp.text
+        assert "TV Guide & Lineup" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_epg_channels_lineup():
+    """Verify GET /api/epg/channels returns formatted channel lineup and schedules."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/epg/channels")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_channels" in data
+        assert data["total_channels"] > 0
+        assert "channels" in data
+        assert len(data["channels"]) > 0
+
+        first_ch = data["channels"][0]
+        assert "call_sign" in first_ch
+        assert "number" in first_ch
+        assert "upcoming" in first_ch
+
+
+@pytest.mark.asyncio
+async def test_epg_configure():
+    """Verify POST /api/epg/configure updates settings and compiles EPG."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {
+            "schedules_direct_user": "test_user_wmc",
+            "postal_code": "67147",
+        }
+        resp = await client.post("/api/epg/configure", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] in ("success", "warning")
+
+
+@pytest.mark.asyncio
+async def test_movie_dvdid_preview():
+    """Verify GET /api/metadata/movies/{title}/dvdid returns raw XML for UI preview."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/metadata/movies/Inception/dvdid")
+        assert resp.status_code == 200
+        assert "application/xml" in resp.headers.get("content-type", "")
+        assert b"<DvdId>" in resp.content or b"<MDR-DVD>" in resp.content
