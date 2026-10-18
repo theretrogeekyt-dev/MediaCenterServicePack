@@ -484,13 +484,10 @@ if ($ResetMusicDatabase) {
 }
 
 if ($RefreshMusic) {
-    Log-Message "Triggering Windows Media Center eHome music re-indexing..."
-    if ($ehPrivJob -and (Test-Path $ehPrivJob)) {
-        Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-        Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-        Log-Message "ehPrivJob /DoReIndexing and /UpdateDiscMetadata completed." "SUCCESS"
-    } else {
-        Log-Message "Notice: ehPrivJob.exe not found. Restart Windows Media Center to view updated music metadata." "WARN"
+    Log-Message "Refreshing Windows Media Player & Media Center music library..."
+    $mcupdate = Join-Path $ehomeDir "mcupdate.exe"
+    if ($mcupdate -and (Test-Path $mcupdate)) {
+        Start-Process -FilePath $mcupdate -ArgumentList "-P" -Wait -NoNewWindow -ErrorAction SilentlyContinue
     }
 }
 
@@ -550,10 +547,10 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
             Start-Service -Name "ehrecvr" -ErrorAction SilentlyContinue
         }
 
-        if ($ehPrivJob -and (Test-Path $ehPrivJob)) {
-            Log-Message "Refreshing eHome caches via ehPrivJob..."
-            Start-Process -FilePath $ehPrivJob -ArgumentList "/DoReIndexing" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-            Start-Process -FilePath $ehPrivJob -ArgumentList "/UpdateDiscMetadata" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+        $mcupdate = Join-Path $ehomeDir "mcupdate.exe"
+        if ($mcupdate -and (Test-Path $mcupdate)) {
+            Log-Message "Refreshing eHome PVR schedule tasks via mcupdate.exe..."
+            Start-Process -FilePath $mcupdate -ArgumentList "-P" -Wait -NoNewWindow -ErrorAction SilentlyContinue
         }
     }
 }
