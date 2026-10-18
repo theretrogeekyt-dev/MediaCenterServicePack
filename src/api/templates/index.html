@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project eHome | OpenMCE Backend</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0e17;
+            --card-bg: #131b2e;
+            --accent-blue: #0078d7;
+            --accent-cyan: #00bcf2;
+            --accent-green: #107c41;
+            --accent-orange: #d83b01;
+            --text-main: #f3f4f6;
+            --text-muted: #94a3b8;
+            --border-color: #1e293b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 30px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        .brand-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #ffffff;
+        }
+
+        .badge-pill {
+            background-color: rgba(16, 124, 65, 0.2);
+            color: #4ade80;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid rgba(16, 124, 65, 0.4);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .card-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 18px 0;
+        }
+
+        .stat-item {
+            background-color: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .stat-val {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn {
+            background-color: var(--accent-blue);
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background-color: #106ebe;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: #334155;
+        }
+
+        .client-guide {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 20px;
+        }
+
+        .code-block {
+            background-color: #05070d;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 14px 18px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            color: #38bdf8;
+            overflow-x: auto;
+            margin: 12px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .copy-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background-color: #1e293b;
+            border-left: 4px solid var(--accent-cyan);
+            color: #fff;
+            padding: 14px 20px;
+            border-radius: 6px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <div class="brand-title">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00bcf2" stroke-width="2">
+                        <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
+                        <polyline points="17 2 12 7 7 2"></polyline>
+                    </svg>
+                    Project eHome
+                    <span class="badge-pill">OpenMCE Backend Active</span>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">
+                    Modern API Adapter & On-Premises EPG/Metadata Engine for Windows Media Center
+                </div>
+            </div>
+            <div>
+                <span style="font-size: 0.85rem; color: var(--text-muted);">Timezone: <strong>{{ tz }}</strong></span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- EPG Lineup Card -->
+            <div class="card">
+                <div>
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">EPG Lineup Service</div>
+                            <div class="card-subtitle">Media Center XML Format (MXF) Compiler</div>
+                        </div>
+                        <span class="badge-pill" id="epg-badge">{{ epg.status }}</span>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-val" id="epg-channels">{{ epg.channels_count }}</div>
+                            <div class="stat-label">Active Channels</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-val" id="epg-schedules">{{ epg.schedule_count }}</div>
+                            <div class="stat-label">Schedule Entries</div>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                        Last Sync: <span id="epg-last-sync">{{ epg.last_sync or 'Never' }}</span>
+                    </p>
+                </div>
+
+                <div class="card-actions">
+                    <button class="btn" onclick="triggerEPGSync()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        Sync EPG Now
+                    </button>
+                    <a href="/api/guide.mxf" class="btn btn-secondary" download>
+                        Download .mxf
+                    </a>
+                </div>
+            </div>
+
+            <!-- Movie Metadata Card -->
+            <div class="card">
+                <div>
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">Movie Metadata Engine</div>
+                            <div class="card-subtitle">5.0 MDR-DVD & Sidecar Generator</div>
+                        </div>
+                        <span class="badge-pill" id="movies-badge">{{ movies.status }}</span>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-val" id="movies-scanned">{{ movies.scanned_count }}</div>
+                            <div class="stat-label">Movies Scanned</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-val" id="movies-updated">{{ movies.updated_count }}</div>
+                            <div class="stat-label">Sidecars Written</div>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                        Target: <code>/media/movies</code> (dvdid.xml + folder.jpg)
+                    </p>
+                </div>
+
+                <div class="card-actions">
+                    <button class="btn" onclick="triggerMediaScan()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        Scan Movies Now
+                    </button>
+                </div>
+            </div>
+
+            <!-- Music Metadata Card -->
+            <div class="card">
+                <div>
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">Music Metadata Engine</div>
+                            <div class="card-subtitle">ID3v2.3 Standardizer & 500x500 Cover Art</div>
+                        </div>
+                        <span class="badge-pill" id="music-badge">{{ music.status }}</span>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-val" id="music-scanned">{{ music.scanned_count }}</div>
+                            <div class="stat-label">Tracks Scanned</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-val" id="music-tagged">{{ music.tagged_count }}</div>
+                            <div class="stat-label">Tracks Tagged</div>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                        Target: <code>/media/music</code> (WMC ehshell.exe Compatible)
+                    </p>
+                </div>
+
+                <div class="card-actions">
+                    <button class="btn" onclick="triggerMediaScan()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        Scan Music Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Client Ingestion Helper Section -->
+        <div class="client-guide">
+            <h3 style="font-size: 1.15rem; margin-bottom: 10px; color: #ffffff;">
+                Windows Media Center Ingestion Setup
+            </h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">
+                On your Windows Media Center machine, download and schedule <code>sync-wmc.ps1</code> to import <code>guide.mxf</code> into <code>loadmxf.exe</code> and refresh the eHome thumbnail cache:
+            </p>
+            <div class="code-block">
+                <span id="powershell-cmd">powershell -ExecutionPolicy Bypass -File .\client\sync-wmc.ps1 -ServerUrl http://{{ host_ip }}:{{ port }}</span>
+                <button class="copy-btn" onclick="copySnippet()">Copy</button>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.8rem;">
+                Tip: Create a scheduled task in Windows Task Scheduler running daily at 04:00 AM with the above command.
+            </p>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 4000);
+        }
+
+        async function triggerEPGSync() {
+            showToast('Triggering EPG synchronization...');
+            try {
+                const res = await fetch('/api/epg/sync', { method: 'POST' });
+                const data = await res.json();
+                showToast(data.message || 'EPG synchronization complete!');
+                setTimeout(() => window.location.reload(), 1500);
+            } catch (err) {
+                showToast('Failed to trigger EPG sync: ' + err);
+            }
+        }
+
+        async function triggerMediaScan() {
+            showToast('Triggering movie and music library scan...');
+            try {
+                const res = await fetch('/api/media/scan', { method: 'POST' });
+                const data = await res.json();
+                showToast(data.message || 'Media scan initiated in background!');
+            } catch (err) {
+                showToast('Failed to trigger media scan: ' + err);
+            }
+        }
+
+        function copySnippet() {
+            const text = document.getElementById('powershell-cmd').textContent;
+            navigator.clipboard.writeText(text);
+            showToast('PowerShell command copied to clipboard!');
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,47 @@
+services:
+  openmce:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openmce/project-ehome:latest
+    container_name: openmce-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # System & Timezone configuration
+      - TZ=America/New_York
+      - PUID=1000
+      - PGID=1000
+
+      # Upstream EPG Feed configuration
+      # Provide an XMLTV HTTP URL (e.g. from an IPTV grabber, HDHomeRun, or WebGrab+Plus)
+      - XMLTV_URL=
+      # Or configure Schedules Direct credentials:
+      - SCHEDULES_DIRECT_USER=
+      - SCHEDULES_DIRECT_PASS=
+      - SCHEDULES_DIRECT_KEY=
+
+      # Metadata API Keys
+      # Get a free API key at https://www.themoviedb.org/settings/api
+      - TMDB_API_KEY=
+
+      # Background cron sync schedules (standard crontab format)
+      - CRON_EPG_SYNC=0 3 * * *      # Daily at 03:00 AM
+      - CRON_MEDIA_SCAN=0 4 * * *    # Daily at 04:00 AM
+
+    volumes:
+      # Application persistent config, cache, and compiled guide.mxf
+      - ./config:/config
+      # Mount your movie library share (stores dvdid.xml and folder.jpg)
+      - ./media/movies:/media/movies
+      # Mount your music library share (ID3v2.3 tags and 500x500 album art)
+      - ./media/music:/media/music
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
