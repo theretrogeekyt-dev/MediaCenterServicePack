@@ -2,7 +2,7 @@
 DNS auto-discovery and domain redirection engine for Windows Media Center.
 """
 
-from src.dns.server import dns_service, DNSStats, is_private_address, DNSRateLimiter
+from src.dns.server import dns_service, DNSStats
 
-__all__ = ["dns_service", "DNSStats", "is_private_address", "DNSRateLimiter"]
+__all__ = ["dns_service", "DNSStats"]
 

@@ -20,16 +20,8 @@ services:
       # DNS Auto-Discovery & Domain Redirection Server
       - ENABLE_DNS_SERVER=true
       - DNS_PORT=53
-      # Host IP for local LAN clients (auto-detects if left blank):
+      # Optional host IP override for clients (auto-detects if left blank):
       - DNS_HOST_IP=
-      # Public WAN IP or DDNS hostname for remote clients (auto-detects if left blank):
-      - DNS_PUBLIC_IP=
-      - DNS_AUTO_DETECT_PUBLIC_IP=true
-      # Security & DDoS Protection for Public Port 53:
-      # Refuse non-WMC queries from external WAN clients to prevent open resolver amplification
-      - DNS_AUTHORITATIVE_ONLY=false
-      - DNS_ALLOW_EXTERNAL_RECURSION=false
-      - DNS_RATE_LIMIT_PER_SEC=50
       # Upstream DNS servers for general internet resolution:
       - UPSTREAM_DNS=1.1.1.1,8.8.8.8
 

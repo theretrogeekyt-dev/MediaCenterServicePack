@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src import __version__
 from src.config import settings
-from src.dns import dns_service, DNSStats, is_private_address
+from src.dns import dns_service, DNSStats
 from src.epg.pipeline import EPGPipeline, EPGStats, generate_fallback_epg
 from src.metadata.dvdid_generator import generate_dvd_id
 from src.metadata.movie_engine import MovieEngine
@@ -30,6 +30,57 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 movie_engine = MovieEngine()
 music_engine = MusicEngine()
 
+port_80_server: Optional[asyncio.Server] = None
+
+
+async def start_port_80_forwarder(target_port: int = 8080) -> Optional[asyncio.Server]:
+    """
+    Transparently forwards native port 80 requests to FastAPI on target_port.
+    This enables WMC machines to query http://data.tvdownload.microsoft.com natively on port 80.
+    """
+    if not getattr(settings, "ENABLE_PORT_80_FORWARDER", True):
+        return None
+    if getattr(settings, "PORT", 8080) == 80:
+        return None
+
+    async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            target_reader, target_writer = await asyncio.open_connection("127.0.0.1", target_port)
+
+            async def pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
+                try:
+                    while True:
+                        buf = await src.read(4096)
+                        if not buf:
+                            break
+                        dst.write(buf)
+                        await dst.drain()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        dst.close()
+                    except Exception:
+                        pass
+
+            await asyncio.gather(
+                pipe(reader, target_writer),
+                pipe(target_reader, writer),
+            )
+        except Exception:
+            try:
+                writer.close()
+            except Exception:
+                pass
+
+    try:
+        server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
+        logger.info("Native WMC HTTP listener successfully bound to port 80 (forwarding to 8080).")
+        return server
+    except OSError as e:
+        logger.info(f"Port 80 not available ({e}). Native WMC port 80 interception requires port mapping to 8080 or Tailscale.")
+        return None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,6 +92,10 @@ async def lifespan(app: FastAPI):
 
     # Start DNS auto-discovery & domain redirection server
     await dns_service.start()
+
+    # Start optional native port 80 forwarder (auto-binds when port 80 is available)
+    global port_80_server
+    port_80_server = await start_port_80_forwarder(settings.PORT)
 
     # Pre-compile guide.mxf if not present
     existing_guide = settings.get_existing_guide_mxf()
@@ -56,6 +111,13 @@ async def lifespan(app: FastAPI):
 
     # Clean shutdown
     logger.info("Shutting down MediaCenterServicePack backend...")
+    if port_80_server:
+        port_80_server.close()
+        try:
+            await port_80_server.wait_closed()
+        except Exception:
+            pass
+        port_80_server = None
     await dns_service.stop()
     scheduler_service.shutdown()
     await movie_engine.close()
@@ -172,7 +234,6 @@ async def get_system_status():
             "dns_server_enabled": settings.ENABLE_DNS_SERVER,
             "dns_port": settings.DNS_PORT,
             "detected_host_ip": settings.detected_host_ip,
-            "public_host_ip": settings.public_host_ip,
         },
     }
 
@@ -201,23 +262,13 @@ async def download_setup_bat(request: Request):
     """
     Download pre-configured 1-click Windows setup batch script.
     Substitutes the detected server host IP so client auto-discovers immediately.
-    Smartly selects public IP if client connects from WAN.
     """
     bat_file = get_client_file("setup-wmc.bat")
     if not bat_file:
         raise HTTPException(status_code=404, detail="setup-wmc.bat not found.")
 
     content = bat_file.read_text(encoding="utf-8", errors="ignore")
-    
-    # Check if request was made via external public hostname / IP
-    host_header = request.headers.get("host", "").split(":")[0]
-    if host_header and not is_private_address(host_header) and host_header != "localhost":
-        server_ip = host_header
-    elif settings.DNS_PUBLIC_IP:
-        server_ip = settings.public_host_ip
-    else:
-        server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
-
+    server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
     server_port = settings.PORT
     server_url = f"http://{server_ip}:{server_port}"
     content = content.replace("__SERVER_URL__", server_url)
@@ -550,7 +601,6 @@ async def index_page(request: Request):
             "epg": EPGStats.to_dict(),
             "dns": DNSStats.to_dict(),
             "dns_server_ip": settings.detected_host_ip,
-            "dns_public_ip": settings.public_host_ip,
             "sd_user": settings.SCHEDULES_DIRECT_USER or "",
             "postal_code": settings.POSTAL_CODE or "",
             "has_sd_pass": bool(settings.SCHEDULES_DIRECT_PASS),

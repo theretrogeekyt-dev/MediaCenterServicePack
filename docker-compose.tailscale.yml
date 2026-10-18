@@ -1,0 +1,72 @@
+services:
+  # -------------------------------------------------------------
+  # Tailscale Sidecar Container
+  # Joins your private Tailnet, provides a dedicated IP (100.x.y.z),
+  # eliminates port 80/53 collisions with Synology DSM,
+  # and bypasses Cox router port-forwarding and ISP blocks completely.
+  # -------------------------------------------------------------
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: mediacenter-tailscale
+    hostname: mediacenter
+    restart: unless-stopped
+    environment:
+      # Generate an auth key at https://login.tailscale.com/admin/settings/keys
+      - TS_AUTHKEY=${TS_AUTHKEY:-tskey-auth-your-key-here}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--advertise-tags=tag:container
+    volumes:
+      - /volume1/docker/MCSP/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+
+  # -------------------------------------------------------------
+  # MediaCenterServicePack Container
+  # Shares the Tailscale network namespace.
+  # Listens on Port 53 (DNS), Port 80 (WMC Intercept), and Port 8080.
+  # -------------------------------------------------------------
+  mediacenter:
+    image: ghcr.io/theretrogeekyt-dev/mediacenterservicepack:latest
+    container_name: mediacenter-servicepack
+    restart: unless-stopped
+    network_mode: "service:tailscale"
+    depends_on:
+      - tailscale
+    environment:
+      # System & Timezone configuration
+      - TZ=America/Chicago
+      - PUID=1026
+      - PGID=100
+
+      # DNS Server & Auto-Discovery Configuration
+      - ENABLE_DNS_SERVER=true
+      - DNS_PORT=53
+      # Automatically detects Tailscale 100.x.y.z IP when left blank!
+      - DNS_HOST_IP=
+      - UPSTREAM_DNS=1.1.1.1,8.8.8.8
+      - ENABLE_PORT_80_FORWARDER=true
+
+      # TV Guide EPG Service Configuration (Schedules Direct)
+      - SCHEDULES_DIRECT_USER=joshuamichael8841
+      - SCHEDULES_DIRECT_PASS=yearbook2024metalblink
+      - POSTAL_CODE=67147
+
+      # Metadata API Keys (TMDb)
+      - TMDB_API_KEY=6624136394d123bc33097c48fdccced7
+
+      # Background cron EPG sync schedule (daily at 3 AM)
+      - CRON_EPG_SYNC=0 3 * * *
+
+    volumes:
+      # Config volume for guide.mxf and cache
+      - /volume1/docker/MCSP/config:/config
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

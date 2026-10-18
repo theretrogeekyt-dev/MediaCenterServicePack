@@ -1,14 +1,11 @@
 import asyncio
-import ipaddress
 import logging
 import socket
 import struct
-import time
-from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-from dnslib import A, DNSHeader, DNSRecord, QTYPE, RCODE, RR
+from dnslib import A, DNSHeader, DNSRecord, QTYPE, RR
 
 from src.config import settings
 
@@ -40,64 +37,13 @@ DEFAULT_INTERCEPTED_DOMAINS = [
 ]
 
 
-def is_private_address(ip_str: str) -> bool:
-    """Determine if an IP address belongs to RFC1918 private, loopback, or link-local ranges."""
-    try:
-        ip = ipaddress.ip_address(ip_str)
-        return ip.is_private or ip.is_loopback or ip.is_link_local
-    except ValueError:
-        return False
-
-
-class DNSRateLimiter:
-    """Per-IP sliding window rate limiter to mitigate DNS amplification and flood attacks."""
-
-    def __init__(self, limit_per_sec: int = 50, window_sec: float = 1.0):
-        self.limit = limit_per_sec
-        self.window = window_sec
-        self.counts: Dict[str, List[float]] = defaultdict(lambda: [0.0, 0.0])  # [count, window_start]
-        self._last_cleanup = time.time()
-
-    def is_allowed(self, client_ip: str) -> bool:
-        if self.limit <= 0:
-            return True
-        now = time.time()
-        if now - self._last_cleanup > 60.0:
-            self._cleanup(now)
-            self._last_cleanup = now
-
-        entry = self.counts[client_ip]
-        count, start = entry[0], entry[1]
-        if now - start > self.window:
-            self.counts[client_ip] = [1.0, now]
-            return True
-        if count < self.limit:
-            entry[0] += 1.0
-            return True
-        return False
-
-    def _cleanup(self, now: float):
-        expired = [ip for ip, (_, start) in self.counts.items() if now - start > self.window * 2]
-        for ip in expired:
-            del self.counts[ip]
-
-    def reset(self):
-        self.counts.clear()
-
-
 class DNSStats:
     is_running: bool = False
     listening_port: int = 53
     target_ip: str = "127.0.0.1"
-    public_target_ip: Optional[str] = None
     queries_total: int = 0
     queries_intercepted: int = 0
     queries_forwarded: int = 0
-    queries_refused: int = 0
-    queries_rate_limited: int = 0
-    rate_limit_per_sec: int = 50
-    authoritative_only: bool = False
-    allow_external_recursion: bool = False
     last_query_time: Optional[str] = None
     last_error: Optional[str] = None
     intercepted_domains: List[str] = DEFAULT_INTERCEPTED_DOMAINS
@@ -108,15 +54,9 @@ class DNSStats:
             "is_running": cls.is_running,
             "listening_port": cls.listening_port,
             "target_ip": cls.target_ip,
-            "public_target_ip": cls.public_target_ip,
             "queries_total": cls.queries_total,
             "queries_intercepted": cls.queries_intercepted,
             "queries_forwarded": cls.queries_forwarded,
-            "queries_refused": cls.queries_refused,
-            "queries_rate_limited": cls.queries_rate_limited,
-            "rate_limit_per_sec": cls.rate_limit_per_sec,
-            "authoritative_only": cls.authoritative_only,
-            "allow_external_recursion": cls.allow_external_recursion,
             "last_query_time": cls.last_query_time,
             "last_error": cls.last_error,
             "intercepted_domains": cls.intercepted_domains,
@@ -135,14 +75,6 @@ class DNSUDPProtocol(asyncio.DatagramProtocol):
         asyncio.create_task(self.handle_query(data, addr))
 
     async def handle_query(self, data: bytes, addr: Tuple[str, int]):
-        client_ip = addr[0]
-
-        # 1. Rate Limiting (RRL) to mitigate DNS amplification and flood attacks
-        if not self.service.rate_limiter.is_allowed(client_ip):
-            DNSStats.queries_rate_limited += 1
-            logger.debug(f"DNS rate limit exceeded for {client_ip}; dropping query.")
-            return
-
         DNSStats.queries_total += 1
         DNSStats.last_query_time = datetime.now(timezone.utc).isoformat()
         try:
@@ -156,19 +88,13 @@ class DNSUDPProtocol(asyncio.DatagramProtocol):
                 for domain in DNSStats.intercepted_domains
             )
 
-            # Split-Horizon DNS Resolution:
-            # - Private LAN clients receive local host IP to prevent hairpin NAT failure.
-            # - Public WAN clients receive public WAN IP / DDNS so remote WMC connects successfully.
-            is_client_private = is_private_address(client_ip)
-            resolved_ip = DNSStats.target_ip if is_client_private else (DNSStats.public_target_ip or DNSStats.target_ip)
-
             if is_intercepted:
                 # A or ANY query -> return our service IP
                 if qtype_name in ("A", "ANY"):
                     reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=1, ra=1), q=req.q)
-                    reply.add_answer(RR(req.q.qname, QTYPE.A, rdata=A(resolved_ip), ttl=60))
+                    reply.add_answer(RR(req.q.qname, QTYPE.A, rdata=A(DNSStats.target_ip), ttl=60))
                     DNSStats.queries_intercepted += 1
-                    logger.debug(f"Intercepted DNS query for {qname} (A) -> {resolved_ip} from {client_ip}")
+                    logger.debug(f"Intercepted DNS query for {qname} (A) -> {DNSStats.target_ip} from {addr[0]}")
                     if self.transport:
                         self.transport.sendto(reply.pack(), addr)
                     return
@@ -180,24 +106,7 @@ class DNSUDPProtocol(asyncio.DatagramProtocol):
                         self.transport.sendto(reply.pack(), addr)
                     return
 
-            # Open Resolver & DDoS Protection:
-            # 1. Authoritative-only mode rejects all non-intercepted domain queries
-            if DNSStats.authoritative_only:
-                reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=0, ra=0, rcode=RCODE.REFUSED), q=req.q)
-                DNSStats.queries_refused += 1
-                if self.transport:
-                    self.transport.sendto(reply.pack(), addr)
-                return
-
-            # 2. If client is external (public WAN) and external recursion is NOT explicitly allowed, refuse to prevent DNS amplification
-            if not is_client_private and not DNSStats.allow_external_recursion:
-                reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=0, ra=0, rcode=RCODE.REFUSED), q=req.q)
-                DNSStats.queries_refused += 1
-                if self.transport:
-                    self.transport.sendto(reply.pack(), addr)
-                return
-
-            # Forward external queries to upstream DNS (Cloudflare/Google)
+            # Forward external queries to upstream DNS
             resp = await self.service.forward_query(data)
             if resp and self.transport:
                 DNSStats.queries_forwarded += 1
@@ -214,7 +123,6 @@ class DNSService:
         self.udp_transport: Optional[asyncio.DatagramTransport] = None
         self.tcp_server: Optional[asyncio.Server] = None
         self.upstreams: List[Tuple[str, int]] = []
-        self.rate_limiter = DNSRateLimiter(limit_per_sec=getattr(settings, "DNS_RATE_LIMIT_PER_SEC", 50))
 
     def configure_upstreams(self):
         upstreams = []
@@ -253,18 +161,6 @@ class DNSService:
 
     async def handle_tcp_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle optional TCP DNS query."""
-        peername = writer.get_extra_info("peername")
-        client_ip = peername[0] if peername else "127.0.0.1"
-
-        if not self.rate_limiter.is_allowed(client_ip):
-            DNSStats.queries_rate_limited += 1
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-            return
-
         try:
             # First 2 bytes specify packet length in DNS over TCP
             length_bytes = await reader.readexactly(2)
@@ -280,23 +176,11 @@ class DNSService:
                 for domain in DNSStats.intercepted_domains
             )
 
-            is_client_private = is_private_address(client_ip)
-            resolved_ip = DNSStats.target_ip if is_client_private else (DNSStats.public_target_ip or DNSStats.target_ip)
-
-            resp_bytes = None
             if is_intercepted and qtype_name in ("A", "ANY"):
                 reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=1, ra=1), q=req.q)
-                reply.add_answer(RR(req.q.qname, QTYPE.A, rdata=A(resolved_ip), ttl=60))
+                reply.add_answer(RR(req.q.qname, QTYPE.A, rdata=A(DNSStats.target_ip), ttl=60))
                 resp_bytes = reply.pack()
                 DNSStats.queries_intercepted += 1
-            elif is_intercepted and qtype_name == "AAAA":
-                reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=1, ra=1), q=req.q)
-                resp_bytes = reply.pack()
-                DNSStats.queries_intercepted += 1
-            elif DNSStats.authoritative_only or (not is_client_private and not DNSStats.allow_external_recursion):
-                reply = DNSRecord(DNSHeader(id=req.header.id, qr=1, aa=0, ra=0, rcode=RCODE.REFUSED), q=req.q)
-                resp_bytes = reply.pack()
-                DNSStats.queries_refused += 1
             else:
                 resp_bytes = await self.forward_query(data)
                 if resp_bytes:
@@ -324,15 +208,8 @@ class DNSService:
 
         port = getattr(settings, "DNS_PORT", 53)
         target_ip = settings.detected_host_ip
-        public_target_ip = settings.public_host_ip
-
         DNSStats.listening_port = port
         DNSStats.target_ip = target_ip
-        DNSStats.public_target_ip = public_target_ip
-        DNSStats.rate_limit_per_sec = getattr(settings, "DNS_RATE_LIMIT_PER_SEC", 50)
-        DNSStats.authoritative_only = getattr(settings, "DNS_AUTHORITATIVE_ONLY", False)
-        DNSStats.allow_external_recursion = getattr(settings, "DNS_ALLOW_EXTERNAL_RECURSION", False)
-        self.rate_limiter = DNSRateLimiter(limit_per_sec=DNSStats.rate_limit_per_sec)
         self.configure_upstreams()
 
         loop = asyncio.get_running_loop()
@@ -348,8 +225,7 @@ class DNSService:
             DNSStats.last_error = None
             logger.info(
                 f"DNS auto-discovery server listening on 0.0.0.0:{port} (UDP). "
-                f"LAN target: {target_ip}, Public WAN target: {public_target_ip}. "
-                f"DDoS Protection: RRL={DNSStats.rate_limit_per_sec} qps, Authoritative-Only={DNSStats.authoritative_only}, External-Recursion={DNSStats.allow_external_recursion}"
+                f"WMC domains redirecting to: {target_ip}"
             )
         except OSError as e:
             DNSStats.is_running = False
