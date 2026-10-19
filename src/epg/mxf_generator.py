@@ -71,6 +71,7 @@ class MXFGenerator:
         etree.SubElement(mcepg_ns, "Type", name="Keyword")
         etree.SubElement(mcepg_ns, "Type", name="KeywordGroup")
         etree.SubElement(mcepg_ns, "Type", name="GuideImage")
+        etree.SubElement(mcepg_ns, "Type", name="Region")
 
         mcstore_asm = etree.SubElement(
             root,
@@ -114,6 +115,9 @@ class MXFGenerator:
 
         # Build Lineups & Channels
         self._build_lineups(with_elem)
+
+        # Build Regions for TV Setup Headend discovery
+        self._build_regions(with_elem)
 
         # Return formatted XML bytes
         return etree.tostring(
@@ -293,4 +297,17 @@ class MXFGenerator:
                 "matchName": ch.call_sign,
             }
             etree.SubElement(channels_elem, "Channel", **c_attribs)
+
+    def _build_regions(self, parent: etree._Element):
+        regions_elem = etree.SubElement(parent, "Regions")
+        postal_code = getattr(self.db.lineup, "postal_code", None) or "67147"
+        country = getattr(self.db.lineup, "country", None) or "US"
+        etree.SubElement(
+            regions_elem,
+            "Region",
+            id="r1",
+            country=country,
+            regionCode=postal_code,
+            lineups=self.db.lineup.id,
+        )
 

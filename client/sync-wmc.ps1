@@ -850,9 +850,10 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
             }
         }
 
-        Map-WmcChannels -ehomeDirectory $ehomeDir
         Ensure-WmcRegion -ehomeDirectory $ehomeDir -PostalCode "67147"
+        Map-WmcChannels -ehomeDirectory $ehomeDir
         Import-WmcGuideListings -mxfPath $mxfLocalPath -ehomeDirectory $ehomeDir
+        Map-WmcChannels -ehomeDirectory $ehomeDir
 
         if (-not $SkipServiceRestart) {
             Log-Message "Restarting WMC services..."

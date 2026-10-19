@@ -193,6 +193,13 @@ def test_mxf_generator_schema_compliance():
     assert c1.get("subNumber") == "1"
     assert c1.get("matchName") == "4.1 WNBC"
 
+    # Check Regions
+    region = with_elem.find(".//Regions/Region")
+    assert region is not None
+    assert region.get("country") == "US"
+    assert region.get("regionCode") == "67147"
+    assert region.get("lineups") == db.lineup.id
+
 
 @pytest.mark.asyncio
 async def test_epg_pipeline_generation(tmp_path: Path):
