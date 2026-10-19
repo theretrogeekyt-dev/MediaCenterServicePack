@@ -87,6 +87,12 @@ param (
     [switch]$SkipServiceRestart = $false,
 
     [Parameter(Mandatory = $false)]
+    [string]$MxfFile = $null,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipDownload = $false,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Quiet = $false
 )
 
@@ -394,7 +400,33 @@ if ($MusicFolder) {
                     $downloadedCount++
                     Log-Message "Added WMC artwork to: $($dir.FullName)" "SUCCESS"
                 } catch {
-                    Log-Message "Could not find artwork for '$cleanName': $_" "WARN"
+                    # Direct iTunes Search API fallback (requires zero server dependencies)
+                    try {
+                        $itunesQuery = [System.Uri]::EscapeDataString($cleanName)
+                        $itunesUrl = "https://itunes.apple.com/search?term=$itunesQuery&entity=album&limit=1"
+                        $itunesResp = Invoke-RestMethod -Uri $itunesUrl -TimeoutSec 10 -ErrorAction Stop
+                        if ($itunesResp.results -and $itunesResp.results.Count -gt 0) {
+                            $rawArtUrl = $itunesResp.results[0].artworkUrl100
+                            if ($rawArtUrl) {
+                                $hiResUrl = $rawArtUrl.Replace("100x100bb", "600x600bb")
+                                $artWc = New-Object System.Net.WebClient
+                                $artBytes = $artWc.DownloadData($hiResUrl)
+                                $artWc.Dispose()
+                                if ($artBytes -and $artBytes.Length -gt 500) {
+                                    [System.IO.File]::WriteAllBytes((Join-Path $dir.FullName "Folder.jpg"), $artBytes)
+                                    [System.IO.File]::WriteAllBytes((Join-Path $dir.FullName "folder.jpg"), $artBytes)
+                                    [System.IO.File]::WriteAllBytes((Join-Path $dir.FullName "AlbumArtSmall.jpg"), $artBytes)
+                                    Copy-Item -Path (Join-Path $dir.FullName "Folder.jpg") -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
+                                    $downloadedCount++
+                                    Log-Message "Enriched artwork from iTunes for: $($dir.FullName)" "SUCCESS"
+                                    continue
+                                }
+                            }
+                        }
+                        Log-Message "Could not find artwork for '$cleanName': $_" "WARN"
+                    } catch {
+                        Log-Message "Could not find artwork for '$cleanName': $_" "WARN"
+                    }
                 }
             } else {
                 Copy-Item -Path $folderJpg -Destination $wmcArtCache -Force -ErrorAction SilentlyContinue
@@ -516,15 +548,19 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
             }
         }
 
-        $mxfLocalPath = Join-Path $WorkingDirectory "guide.mxf"
-        $mxfEndpoint = "$($ServerUrl.TrimEnd('/'))/api/guide.mxf"
-        Log-Message "Downloading guide payload from: $mxfEndpoint"
+        $mxfLocalPath = if ($MxfFile -and (Test-Path $MxfFile)) { $MxfFile } else { Join-Path $WorkingDirectory "guide.mxf" }
+        if (-not $SkipDownload -and -not $MxfFile) {
+            $mxfEndpoint = "$($ServerUrl.TrimEnd('/'))/api/guide.mxf"
+            Log-Message "Downloading guide payload from: $mxfEndpoint"
 
-        try {
-            $webClient.DownloadFile($mxfEndpoint, $mxfLocalPath)
-        } catch {
-            Log-Message "Failed to download guide.mxf from $mxfEndpoint : $_" "ERROR"
-            exit 3
+            try {
+                $webClient.DownloadFile($mxfEndpoint, $mxfLocalPath)
+            } catch {
+                Log-Message "Failed to download guide.mxf from $mxfEndpoint : $_" "ERROR"
+                exit 3
+            }
+        } else {
+            Log-Message "Using local guide payload: $mxfLocalPath" "INFO"
         }
 
         if (-not $SkipServiceRestart) {
@@ -560,7 +596,9 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
 
                 Add-Type -Path $mcStoreDll -ErrorAction SilentlyContinue
                 Add-Type -Path $ehRecObjDll -ErrorAction SilentlyContinue
-                Add-Type -Path $mcepgDll -ErrorAction SilentlyContinue
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                Start-Sleep -Milliseconds 200
 
                 $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, "Default", $null, $true)
                 if (-not $store) { return }
@@ -599,12 +637,49 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                         }
                     }
                 }
-                $store.Dispose()
                 if ($mappedCount -gt 0) {
                     Log-Message "Automatically mapped $mappedCount tuner channels to Guide listings." "SUCCESS"
                 } else {
                     Log-Message "All scanned tuner channels already mapped to Guide listings." "INFO"
                 }
+
+                # Propagate service logos to MergedChannels and prune channels lacking listings or logos
+                $hiddenCount = 0
+                $visibleCount = 0
+                foreach ($mc in $mergedChannels) {
+                    if ($mc.CallSign -like "Deleted*") { continue }
+
+                    # Sync LogoImage from Service if missing
+                    if ($mc.LogoImage -eq $null -and $mc.Service -and $mc.Service.LogoImage) {
+                        $mc.LogoImage = $mc.Service.LogoImage
+                        $mc.Update()
+                    }
+
+                    $schedCount = 0
+                    if ($mc.Service -and $mc.Service.ScheduleEntries) {
+                        foreach ($se in $mc.Service.ScheduleEntries) { $schedCount++ }
+                    }
+                    $hasLogo = ($mc.LogoImage -ne $null) -or ($mc.Service -and $mc.Service.LogoImage -ne $null)
+                    $hasInfo = ($schedCount -gt 0)
+
+                    if (-not $hasInfo -or -not $hasLogo) {
+                        if ($mc.UserBlockedState -ne [Microsoft.MediaCenter.Guide.UserBlockedState]::Disabled -or $mc.Visibility -ne [Microsoft.MediaCenter.Guide.ChannelVisibility]::Blocked) {
+                            $mc.UserBlockedState = [Microsoft.MediaCenter.Guide.UserBlockedState]::Disabled
+                            $mc.Visibility = [Microsoft.MediaCenter.Guide.ChannelVisibility]::Blocked
+                            $mc.Update()
+                        }
+                        $hiddenCount++
+                    } else {
+                        if ($mc.UserBlockedState -ne [Microsoft.MediaCenter.Guide.UserBlockedState]::Enabled -or $mc.Visibility -ne [Microsoft.MediaCenter.Guide.ChannelVisibility]::Available) {
+                            $mc.UserBlockedState = [Microsoft.MediaCenter.Guide.UserBlockedState]::Enabled
+                            $mc.Visibility = [Microsoft.MediaCenter.Guide.ChannelVisibility]::Available
+                            $mc.Update()
+                        }
+                        $visibleCount++
+                    }
+                }
+                Log-Message "Guide Channel Audit: $visibleCount channels active & visible, $hiddenCount dead/unlisted/logoless channels hidden." "SUCCESS"
+                $store.Dispose()
             } catch {
                 Log-Message "Channel auto-mapping notice: $_" "WARN"
             }
@@ -622,6 +697,9 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
 
                 Add-Type -Path $mcStoreDll -ErrorAction SilentlyContinue
                 Add-Type -Path $mcepgDll -ErrorAction SilentlyContinue
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                Start-Sleep -Milliseconds 200
 
                 $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, "Default", $null, $true)
                 if (-not $store) { return }
@@ -689,6 +767,29 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                     Log-Message "WMC guide Region for US $PostalCode is active and verified." "INFO"
                 }
 
+                # Register / update VideoDetails WebServiceLocator pointing to ServerUrl
+                try {
+                    $uids = New-Object Microsoft.MediaCenter.Store.UIds($store)
+                    $vdUid = "!Microsoft.WindowsMedia.Services.Platform.Apps.Mdp.Services!VideoDetails"
+                    $vdLoc = $uids[$vdUid]
+                    $targetEndpoint = if ($ServerUrl) { $ServerUrl.TrimEnd('/') } else { "http://127.0.0.1:8080" }
+                    if (-not $vdLoc -or -not $vdLoc.Target) {
+                        $locColl = New-Object Microsoft.MediaCenter.Store.WebServiceLocators($store)
+                        $newLoc = $locColl.ObjectType.New()
+                        $newLoc.Url = $targetEndpoint
+                        $newLoc.Protocol = "MDP"
+                        $locColl.Add($newLoc)
+                        try { $uids.Add($vdUid, $newLoc) } catch {}
+                        $newLoc.Update()
+                        Log-Message "Registered WMC Movie Details WebServiceLocator to $targetEndpoint" "SUCCESS"
+                    } elseif ($vdLoc.Target.Url -ne $targetEndpoint) {
+                        $vdLoc.Target.Url = $targetEndpoint
+                        $vdLoc.Target.Update()
+                    }
+                } catch {
+                    Log-Message "VideoDetails WebServiceLocator notice: $_" "WARN"
+                }
+
                 $store.Dispose()
             } catch {
                 Log-Message "Region setup notice: $_" "WARN"
@@ -734,6 +835,10 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                 }
 
                 Log-Message "Directly ingesting $($mxfPrograms.Count) programs & listings under provider '$providerName'..."
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                Start-Sleep -Milliseconds 200
+
                 $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, $providerName, $null, $true)
                 if (-not $store) { return }
 
@@ -743,6 +848,74 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                 $seType = $seColl.ObjectType
                 $uids = New-Object Microsoft.MediaCenter.Store.UIds($store)
                 $delMethod = $store.GetType().GetMethod("ObjectCollectionDeleteRecords", [System.Reflection.BindingFlags]"NonPublic,Public,Instance")
+
+                # 0. Index and instantiate GuideImages from MXF with local artwork caching
+                $imgObjects = @{}
+                $localImagesDir = Join-Path $WorkingDirectory "Images"
+                if (-not (Test-Path $localImagesDir)) {
+                    New-Item -ItemType Directory -Path $localImagesDir -Force | Out-Null
+                }
+
+                if ($xml.MXF.With.GuideImages -and $xml.MXF.With.GuideImages.GuideImage) {
+                    $imagesColl = New-Object Microsoft.MediaCenter.Guide.GuideImages($store)
+                    $imgType = $imagesColl.ObjectType
+
+                    # Pre-cache un-cached artwork if server endpoint is available
+                    $toDownload = @()
+                    foreach ($giNode in $xml.MXF.With.GuideImages.GuideImage) {
+                        if ($giNode.imageUrl -match "([a-f0-9]{64}\.jpg)") {
+                            $hash = $matches[1]
+                            $dest = Join-Path $localImagesDir $hash
+                            if (-not (Test-Path $dest)) {
+                                $toDownload += @{ Hash = $hash; Dest = $dest }
+                            }
+                        }
+                    }
+
+                    if ($toDownload.Count -gt 0 -and $ServerUrl) {
+                        Log-Message "Pre-caching $($toDownload.Count) artwork images locally..."
+                        $wc = New-Object System.Net.WebClient
+                        $wc.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
+                        $dlCount = 0
+                        foreach ($item in $toDownload) {
+                            try {
+                                $imgEndpoint = "$($ServerUrl.TrimEnd('/'))/api/images/$($item.Hash)"
+                                $wc.DownloadFile($imgEndpoint, $item.Dest)
+                                $dlCount++
+                            } catch {}
+                        }
+                        $wc.Dispose()
+                        if ($dlCount -gt 0) {
+                            Log-Message "Pre-cached $dlCount artwork images to local storage." "SUCCESS"
+                        }
+                    }
+
+                    foreach ($giNode in $xml.MXF.With.GuideImages.GuideImage) {
+                        $imgUid = "!GuideImage!" + $giNode.id
+                        $existingImg = $uids[$imgUid]
+                        $gi = $null
+                        if ($existingImg -and $existingImg.Target) {
+                            $gi = $existingImg.Target
+                        } else {
+                            $gi = $imgType.New()
+                            $imagesColl.Add($gi)
+                            try { $uids.Add($imgUid, $gi) } catch {}
+                        }
+
+                        $assignedUrl = $giNode.imageUrl
+                        if ($giNode.imageUrl -match "([a-f0-9]{64}\.jpg)") {
+                            $hash = $matches[1]
+                            $localFile = Join-Path $localImagesDir $hash
+                            if (Test-Path $localFile) {
+                                $assignedUrl = "file://" + ($localFile -replace '\\', '/')
+                            }
+                        }
+
+                        if ($assignedUrl) { $gi.ImageUrl = $assignedUrl }
+                        $gi.Update()
+                        $imgObjects[$giNode.id] = $gi
+                    }
+                }
 
                 # 1. Update/Instantiate Programs
                 $progObjects = @{}
@@ -774,6 +947,9 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                         $en = 0
                         if ([int]::TryParse($pNode.episodeNumber, [ref]$en)) { $p.EpisodeNumber = $en }
                     }
+                    if ($pNode.guideImage -and $imgObjects.ContainsKey($pNode.guideImage)) {
+                        $p.GuideImage = $imgObjects[$pNode.guideImage]
+                    }
 
                     $p.Update()
                     $progObjects[$prId] = $p
@@ -788,6 +964,21 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                     $norm = ($mc.Service.CallSign -replace '[^\w]').ToUpper()
                     if (-not $activeServicesByCall.ContainsKey($norm)) {
                         $activeServicesByCall[$norm] = $mc.Service
+                    }
+                }
+
+                # 2b. Assign station LogoImages to active broadcast Services
+                foreach ($mxfSvcId in $mxfServicesById.Keys) {
+                    $mxfSvc = $mxfServicesById[$mxfSvcId]
+                    if ($mxfSvc.logoImage -and $imgObjects.ContainsKey($mxfSvc.logoImage)) {
+                        $norm = ($mxfSvc.callSign -replace '[^\w]').ToUpper()
+                        if ($activeServicesByCall.ContainsKey($norm)) {
+                            $wmcSvc = $activeServicesByCall[$norm]
+                            if ($wmcSvc.LogoImage -eq $null) {
+                                $wmcSvc.LogoImage = $imgObjects[$mxfSvc.logoImage]
+                                $wmcSvc.Update()
+                            }
+                        }
                     }
                 }
 

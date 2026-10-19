@@ -222,7 +222,6 @@ class MXFGenerator:
             if matched_keywords:
                 attribs["keywords"] = ",".join(matched_keywords)
 
-            # Link poster image
             if pr.image_url and pr.image_url in self._image_map:
                 attribs["guideImage"] = self._image_map[pr.image_url]
 
@@ -296,6 +295,8 @@ class MXFGenerator:
                 "subNumber": str(ch.sub_number),
                 "matchName": ch.call_sign,
             }
+            if ch.logo_url and ch.logo_url in self._image_map:
+                c_attribs["logoImage"] = self._image_map[ch.logo_url]
             etree.SubElement(channels_elem, "Channel", **c_attribs)
 
     def _build_regions(self, parent: etree._Element):

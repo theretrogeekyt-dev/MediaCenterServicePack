@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+import httpx
 from pydantic import BaseModel
 
 from src import __version__
@@ -336,6 +337,68 @@ async def get_guide_mxf():
         raise HTTPException(status_code=500, detail="Failed to locate or generate guide.mxf payload.")
 
 
+@app.get("/api/images/{image_name}")
+async def get_cached_image(image_name: str):
+    """
+    Serve cached guide artwork and movie posters directly to Windows Media Center.
+    Falls back to fetching from Schedules Direct dynamically if not yet cached locally.
+    """
+    clean_name = Path(image_name).name
+    if not clean_name or clean_name != image_name or "/" in image_name or "\\" in image_name:
+        raise HTTPException(status_code=400, detail="Invalid image file name.")
+
+    # 1. Check local images cache directory
+    candidates = [
+        settings.config_path / "Images" / clean_name,
+        Path("C:/ProgramData/MediaCenterServicePack/Images") / clean_name,
+        Path("/config/Images") / clean_name,
+    ]
+    for cand in candidates:
+        if cand.exists() and cand.is_file():
+            return FileResponse(
+                path=str(cand),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=2592000, immutable"},
+            )
+
+    # 2. If it is an SD image hash, attempt dynamic download & cache
+    if clean_name.endswith(".jpg") and len(clean_name) == 68:  # 64 hex chars + .jpg
+        from src.epg.schedules_direct import SchedulesDirectClient
+        sd_user = settings.SCHEDULES_DIRECT_USER
+        sd_pass = settings.SCHEDULES_DIRECT_PASS
+        sd_key = settings.epg_service_key
+
+        sd = SchedulesDirectClient(
+            token=sd_key,
+            username=sd_user,
+            password=sd_pass,
+            base_url=settings.EPG_SERVICE_URL,
+        )
+        token = await sd.login()
+        await sd.close()
+
+        if token:
+            try:
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                    resp = await client.get(
+                        f"https://json.schedulesdirect.org/20141201/image/{clean_name}",
+                        headers={"token": token, "User-Agent": "MediaCenterServicePack/1.0"},
+                    )
+                    if resp.status_code == 200 and len(resp.content) > 500:
+                        save_target = candidates[0]
+                        save_target.parent.mkdir(parents=True, exist_ok=True)
+                        save_target.write_bytes(resp.content)
+                        return Response(
+                            content=resp.content,
+                            media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=2592000, immutable"},
+                        )
+            except Exception as e:
+                logger.warning(f"Dynamic image fetch failed for {clean_name}: {e}")
+
+    raise HTTPException(status_code=404, detail="Image not found.")
+
+
 @app.post("/api/epg/sync")
 async def trigger_epg_sync(
     source_url: Optional[str] = None,
@@ -542,6 +605,30 @@ async def get_movie_dvdid_xml_direct(
         content=xml_str,
         media_type="application/xml",
     )
+
+
+# =========================================================================
+# Native Windows Media Center VideoDetails Service (Movie Details Screen)
+# =========================================================================
+
+@app.get("/videodetails/lookup/movie/{title}")
+async def videodetails_lookup_movie(title: str, year: Optional[int] = Query(None)):
+    """
+    WMC Movie Details lookup endpoint.
+    Called when user clicks on a movie in the Movie Guide.
+    """
+    xml_str = await movie_engine.get_videodetails_lookup_xml(title=title, year=year)
+    return Response(content=xml_str, media_type="application/xml")
+
+
+@app.get("/videodetails/{guid}")
+async def videodetails_get_full(guid: str):
+    """
+    WMC Full Video Details endpoint.
+    Returns extended synopsis, cast/crew contributors, and MPAA ratings.
+    """
+    xml_str = await movie_engine.get_videodetails_full_xml(guid)
+    return Response(content=xml_str, media_type="application/xml")
 
 
 @app.get("/api/metadata/music/search")

@@ -385,4 +385,46 @@ async def test_epg_pipeline_permission_error_fallback(tmp_path):
     assert b"Assembly" in EPGPipeline.last_mxf_bytes
 
 
+def test_channel_logos_in_mxf():
+    """Verify that channels with station logos produce valid GuideImages and logoImage attributes in MXF."""
+    db = EPGDatabase()
+    ch = Channel(
+        id="c1",
+        service_id="s1",
+        call_sign="WMC1",
+        name="WMC Test Channel",
+        number=10,
+        sub_number=1,
+        logo_url="http://example.com/logo.png",
+    )
+    db.channels["c1"] = ch
+    db.lineup = Lineup(channels=[ch])
+
+    prog = Program(
+        id="pr_1",
+        title="Super Series",
+        is_series=True,
+    )
+    db.programs["pr_1"] = prog
+
+    gen = MXFGenerator(db)
+    mxf_bytes = gen.generate()
+    root = etree.fromstring(mxf_bytes)
+
+    # Check GuideImages contains channel logo
+    images = root.findall(".//GuideImages/GuideImage")
+    urls = [gi.get("imageUrl") for gi in images]
+    assert "http://example.com/logo.png" in urls
+
+    # Check Channel in Lineup has logoImage attribute
+    c_elem = root.find(".//Lineups/Lineup/channels/Channel")
+    assert c_elem is not None
+    assert c_elem.get("logoImage") is not None
+
+    # Check Service has logoImage attribute
+    s_elem = root.find(".//Services/Service")
+    assert s_elem is not None
+    assert s_elem.get("logoImage") is not None
+
+
 

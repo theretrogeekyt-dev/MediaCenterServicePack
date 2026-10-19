@@ -153,3 +153,56 @@ async def test_client_sync_script_download():
         assert b"MediaCenterServicePack" in resp.content
         assert b"loadmxf" in resp.content
 
+
+@pytest.mark.asyncio
+async def test_image_proxy_cached(tmp_path, monkeypatch):
+    """Verify /api/images/{image_name} serves cached image file directly."""
+    from src.config import settings
+    img_dir = tmp_path / "Images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    test_img = img_dir / "c210fb676f70bc64ee272e14bbabbbbe6728eb9bd527ef41ad48bbc22c0b0c31.jpg"
+    test_img.write_bytes(b"\xFF\xD8\xFF\xE0MockJpegBytes")
+
+    monkeypatch.setattr(settings, "CONFIG_DIR", str(tmp_path))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/images/c210fb676f70bc64ee272e14bbabbbbe6728eb9bd527ef41ad48bbc22c0b0c31.jpg")
+        assert resp.status_code == 200
+        assert resp.content == b"\xFF\xD8\xFF\xE0MockJpegBytes"
+        assert resp.headers.get("content-type") == "image/jpeg"
+
+        # Traversal protection
+        resp_bad = await client.get("/api/images/../../secret.txt")
+        assert resp_bad.status_code in (400, 404)
+
+
+@pytest.mark.asyncio
+async def test_wmc_videodetails_endpoints():
+    """Verify WMC VideoDetails lookup and full details endpoints return valid XML."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Lookup
+        resp = await client.get("/videodetails/lookup/movie/Inception?year=2010")
+        assert resp.status_code == 200
+        assert resp.headers.get("content-type") == "application/xml"
+        assert b"<VideoDetails" in resp.content
+        assert b"<Video" in resp.content
+        assert b"Inception" in resp.content
+
+        # Extract guid from response
+        import re
+        m = re.search(rb'id="([a-f0-9\-]+)"', resp.content)
+        assert m is not None
+        guid = m.group(1).decode("ascii")
+
+        # 2. Full details
+        resp_full = await client.get(f"/videodetails/{guid}")
+        assert resp_full.status_code == 200
+        assert resp_full.headers.get("content-type") == "application/xml"
+        assert b"<VideoDetails" in resp_full.content
+        assert b'xsi:type="FullVideo"' in resp_full.content
+        assert b"<Ratings>" in resp_full.content
+        assert b"<Contributors>" in resp_full.content
+
+

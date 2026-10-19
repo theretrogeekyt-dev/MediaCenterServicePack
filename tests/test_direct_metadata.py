@@ -74,6 +74,26 @@ async def test_direct_music_engine():
 
 
 @pytest.mark.asyncio
+async def test_direct_music_engine_itunes_fallback():
+    """Verify MusicEngine seamlessly queries iTunes and generates WMC artwork packages."""
+    engine = MusicEngine()
+    try:
+        results = await engine.search_itunes("Abbey Road", artist="The Beatles", limit=1)
+        assert len(results) > 0
+        first = results[0]
+        assert "Abbey Road" in first["title"]
+        assert first["artist"] == "The Beatles"
+        assert first["artwork_url"].startswith("http")
+
+        pkg = await engine.get_wmc_package("Abbey Road", artist="The Beatles")
+        assert pkg is not None
+        assert len(pkg["folder_jpg"]) > 1000
+        assert len(pkg["small_jpg"]) > 500
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_direct_metadata_api_endpoints():
     """Verify FastAPI direct search and download endpoints."""
     transport = ASGITransport(app=app)
