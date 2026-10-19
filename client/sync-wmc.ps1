@@ -695,8 +695,164 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
             }
         }
 
+        function Import-WmcGuideListings {
+            param(
+                [string]$mxfPath,
+                [string]$ehomeDirectory
+            )
+            try {
+                $mcStoreDll = Join-Path $ehomeDirectory "McStore.dll"
+                $mcepgDll = Join-Path $ehomeDirectory "mcepg.dll"
+
+                if (-not (Test-Path $mcStoreDll) -or -not (Test-Path $mcepgDll)) {
+                    Log-Message "Notice: McStore.dll or mcepg.dll not found in $ehomeDirectory. Skipping direct guide listings ingestion." "WARN"
+                    return
+                }
+
+                Add-Type -Path $mcStoreDll -ErrorAction SilentlyContinue
+                Add-Type -Path $mcepgDll -ErrorAction SilentlyContinue
+
+                if (-not (Test-Path $mxfPath)) {
+                    Log-Message "Notice: MXF guide file not found at $mxfPath" "WARN"
+                    return
+                }
+
+                [xml]$xml = [System.IO.File]::ReadAllText($mxfPath)
+                $providerName = "Schedules Direct"
+                if ($xml.MXF.Providers.Provider.name) {
+                    $providerName = $xml.MXF.Providers.Provider.name
+                }
+
+                $mxfServicesById = @{}
+                foreach ($s in $xml.MXF.With.Services.Service) {
+                    $mxfServicesById[$s.id] = $s
+                }
+
+                $mxfPrograms = @{}
+                foreach ($p in $xml.MXF.With.Programs.Program) {
+                    $mxfPrograms[$p.id] = $p
+                }
+
+                Log-Message "Directly ingesting $($mxfPrograms.Count) programs & listings under provider '$providerName'..."
+                $store = [Microsoft.MediaCenter.Store.ObjectStore]::Open($null, $providerName, $null, $true)
+                if (-not $store) { return }
+
+                $programs = New-Object Microsoft.MediaCenter.Guide.Programs($store)
+                $progType = $programs.ObjectType
+                $seColl = New-Object Microsoft.MediaCenter.Guide.ScheduleEntries($store)
+                $seType = $seColl.ObjectType
+                $uids = New-Object Microsoft.MediaCenter.Store.UIds($store)
+                $delMethod = $store.GetType().GetMethod("ObjectCollectionDeleteRecords", [System.Reflection.BindingFlags]"NonPublic,Public,Instance")
+
+                # 1. Update/Instantiate Programs
+                $progObjects = @{}
+                foreach ($prId in $mxfPrograms.Keys) {
+                    $pNode = $mxfPrograms[$prId]
+                    $uidKey = "!Program!" + $prId
+                    $existing = $uids[$uidKey]
+                    $p = $null
+                    if ($existing) {
+                        $p = $existing.Target
+                    } else {
+                        $p = $progType.New()
+                        $programs.Add($p)
+                        try { $uids.Add($uidKey, $p) } catch {}
+                    }
+
+                    $p.Title = $pNode.title
+                    if ($pNode.description) { $p.Description = $pNode.description }
+                    if ($pNode.episodeTitle) { $p.EpisodeTitle = $pNode.episodeTitle }
+                    if ($pNode.isSeries -eq "true") { $p.IsSeries = $true }
+                    if ($pNode.isMovie -eq "true") { $p.IsMovie = $true }
+                    if ($pNode.isNews -eq "true") { $p.IsNews = $true }
+                    if ($pNode.isSports -eq "true") { $p.IsSports = $true }
+                    if ($pNode.seasonNumber) {
+                        $sn = 0
+                        if ([int]::TryParse($pNode.seasonNumber, [ref]$sn)) { $p.SeasonNumber = $sn }
+                    }
+                    if ($pNode.episodeNumber) {
+                        $en = 0
+                        if ([int]::TryParse($pNode.episodeNumber, [ref]$en)) { $p.EpisodeNumber = $en }
+                    }
+
+                    $p.Update()
+                    $progObjects[$prId] = $p
+                }
+
+                # 2. Map active broadcast Services from MergedChannels
+                $mcs = New-Object Microsoft.MediaCenter.Guide.MergedChannels($store)
+                $activeServicesByCall = @{}
+                foreach ($mc in $mcs) {
+                    if ($mc.CallSign -like "Deleted*") { continue }
+                    if (-not $mc.Service) { continue }
+                    $norm = ($mc.Service.CallSign -replace '[^\w]').ToUpper()
+                    if (-not $activeServicesByCall.ContainsKey($norm)) {
+                        $activeServicesByCall[$norm] = $mc.Service
+                    }
+                }
+
+                # 3. Clear existing schedule entries on active broadcast services
+                $toDelSe = @()
+                foreach ($call in $activeServicesByCall.Keys) {
+                    $svc = $activeServicesByCall[$call]
+                    foreach ($se in $svc.ScheduleEntries) {
+                        $toDelSe += $se.Id.ToString()
+                    }
+                }
+                if ($toDelSe.Count -gt 0 -and $delMethod) {
+                    for ($i = 0; $i -lt $toDelSe.Count; $i += 500) {
+                        $count = [Math]::Min(500, $toDelSe.Count - $i)
+                        $batch = ($toDelSe[$i..($i + $count - 1)]) -join ","
+                        $delMethod.Invoke($store, @($seType, $batch))
+                    }
+                }
+
+                # 4. Inject ScheduleEntries into active broadcast services
+                $totalInjected = 0
+                $matchedCount = 0
+                foreach ($seGroup in $xml.MXF.With.ScheduleEntries) {
+                    $mxfSvcId = $seGroup.service
+                    $mxfSvc = $mxfServicesById[$mxfSvcId]
+                    if (-not $mxfSvc) { continue }
+
+                    $norm = ($mxfSvc.callSign -replace '[^\w]').ToUpper()
+                    if (-not $activeServicesByCall.ContainsKey($norm)) { continue }
+                    $wmcSvc = $activeServicesByCall[$norm]
+                    $matchedCount++
+
+                    foreach ($entry in $seGroup.ScheduleEntry) {
+                        $prId = $entry.program
+                        $p = $progObjects[$prId]
+                        if (-not $p) { continue }
+
+                        $startTime = [DateTime]::Parse($entry.startTime, $null, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                        $duration = [int]$entry.duration
+                        $endTime = $startTime.AddSeconds($duration)
+
+                        $se = $seType.New()
+                        $se.Program = $p
+                        $se.Service = $wmcSvc
+                        $se.StartTime = $startTime
+                        $se.EndTime = $endTime
+                        $se.IsHdtv = ($entry.isHdtv -eq "true")
+                        $se.IsRepeatFlag = ($entry.isRepeat -eq "true")
+                        $se.IsCC = ($entry.isCc -eq "true")
+
+                        $wmcSvc.ScheduleEntries.Add($se)
+                        $totalInjected++
+                    }
+                }
+
+                $store.Dispose()
+                Log-Message "Injected $totalInjected live schedule entries across $matchedCount broadcast services into WMC Guide." "SUCCESS"
+            } catch {
+                Log-Message "Direct guide listings ingestion notice: $_" "WARN"
+            }
+        }
+
         Map-WmcChannels -ehomeDirectory $ehomeDir
         Ensure-WmcRegion -ehomeDirectory $ehomeDir -PostalCode "67147"
+        Import-WmcGuideListings -mxfPath $mxfLocalPath -ehomeDirectory $ehomeDir
 
         if (-not $SkipServiceRestart) {
             Log-Message "Restarting WMC services..."

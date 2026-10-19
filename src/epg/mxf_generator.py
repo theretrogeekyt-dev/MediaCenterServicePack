@@ -1,3 +1,4 @@
+import datetime
 import logging
 from typing import Dict, List, Optional, Set
 from lxml import etree
@@ -54,12 +55,11 @@ class MXFGenerator:
         """Construct the complete MXF XML document and return UTF-8 encoded bytes."""
         root = etree.Element("MXF")
 
-        # 1. Assembly & Namespace Declarations
+        # 1. Assembly & Namespace Declarations (omitting fixed version allows universal loading across Win7/8/10/11)
         mcepg_asm = etree.SubElement(
             root,
             "Assembly",
             name="mcepg",
-            version="6.1.0.0",
         )
         mcepg_ns = etree.SubElement(mcepg_asm, "NameSpace", name="Microsoft.MediaCenter.Guide")
         etree.SubElement(mcepg_ns, "Type", name="Lineup")
@@ -76,7 +76,6 @@ class MXFGenerator:
             root,
             "Assembly",
             name="mcstore",
-            version="6.1.0.0",
         )
         mcstore_ns = etree.SubElement(mcstore_asm, "NameSpace", name="Microsoft.MediaCenter.Store")
         etree.SubElement(mcstore_ns, "Type", name="Provider")
@@ -251,10 +250,13 @@ class MXFGenerator:
             entries.sort(key=lambda e: e.start_time)
             for entry in entries:
                 start_iso = entry.start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                end_time = entry.start_time + datetime.timedelta(seconds=entry.duration_seconds)
+                end_iso = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 attribs = {
                     "program": entry.program_id,
                     "startTime": start_iso,
                     "duration": str(entry.duration_seconds),
+                    "endTime": end_iso,
                     "isHdtv": _bool_str(entry.is_hdtv),
                     "isRepeat": _bool_str(entry.is_repeat),
                     "isStereo": _bool_str(entry.is_stereo),
