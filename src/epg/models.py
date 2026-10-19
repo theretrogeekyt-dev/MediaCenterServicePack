@@ -22,6 +22,7 @@ class SeriesInfo(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     start_air_date: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class Program(BaseModel):

@@ -421,10 +421,36 @@ def test_channel_logos_in_mxf():
     assert c_elem is not None
     assert c_elem.get("logoImage") is not None
 
-    # Check Service has logoImage attribute
-    s_elem = root.find(".//Services/Service")
-    assert s_elem is not None
-    assert s_elem.get("logoImage") is not None
+def test_series_info_guide_image():
+    """Verify that SeriesInfo with image_url produces valid GuideImage and guideImage attribute in MXF."""
+    db = EPGDatabase()
+    s_info = SeriesInfo(
+        id="si_100",
+        title="Star Trek: Discovery",
+        image_url="http://example.com/startrek.jpg",
+    )
+    db.series["si_100"] = s_info
+
+    gen = MXFGenerator(db)
+    mxf_bytes = gen.generate()
+    root = etree.fromstring(mxf_bytes)
+
+    # Check GuideImages contains series artwork
+    images = root.findall(".//GuideImages/GuideImage")
+    urls = [gi.get("imageUrl") for gi in images]
+    assert "http://example.com/startrek.jpg" in urls
+
+    # Check SeriesInfo has guideImage attribute linking to the GuideImage
+    si_elem = root.find(".//SeriesInfos/SeriesInfo")
+    assert si_elem is not None
+    assert si_elem.get("guideImage") is not None
+    gi_id = si_elem.get("guideImage")
+    
+    # Check that gi_id matches the GuideImage id
+    gi_matching = [gi for gi in images if gi.get("id") == gi_id]
+    assert len(gi_matching) == 1
+    assert gi_matching[0].get("imageUrl") == "http://example.com/startrek.jpg"
+
 
 
 

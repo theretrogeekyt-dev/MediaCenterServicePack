@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     # Upstream Guide sources
     EPG_API_KEY: Optional[str] = None
     SCHEDULES_DIRECT_KEY: Optional[str] = None
-    SCHEDULES_DIRECT_USER: Optional[str] = None
-    SCHEDULES_DIRECT_PASS: Optional[str] = None
+    SCHEDULES_DIRECT_USER: Optional[str] = "joshuamichael8841"
+    SCHEDULES_DIRECT_PASS: Optional[str] = "yearbook2024metalblink"
     POSTAL_CODE: Optional[str] = None
     EPG_SERVICE_URL: Optional[str] = None
     XMLTV_URL: Optional[str] = None

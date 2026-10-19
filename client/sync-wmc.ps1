@@ -863,25 +863,30 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                     # Pre-cache un-cached artwork if server endpoint is available
                     $toDownload = @()
                     foreach ($giNode in $xml.MXF.With.GuideImages.GuideImage) {
-                        if ($giNode.imageUrl -match "([a-f0-9]{64}\.jpg)") {
-                            $hash = $matches[1]
-                            $dest = Join-Path $localImagesDir $hash
+                        $fname = [System.IO.Path]::GetFileName($giNode.imageUrl)
+                        if ($fname) {
+                            $dest = Join-Path $localImagesDir $fname
                             if (-not (Test-Path $dest)) {
-                                $toDownload += @{ Hash = $hash; Dest = $dest }
+                                $toDownload += @{ Name = $fname; Url = $giNode.imageUrl; Dest = $dest }
                             }
                         }
                     }
 
-                    if ($toDownload.Count -gt 0 -and $ServerUrl) {
+                    if ($toDownload.Count -gt 0) {
                         Log-Message "Pre-caching $($toDownload.Count) artwork images locally..."
                         $wc = New-Object System.Net.WebClient
                         $wc.Headers.Add("User-Agent", "MediaCenterServicePack-Client/1.0")
                         $dlCount = 0
                         foreach ($item in $toDownload) {
                             try {
-                                $imgEndpoint = "$($ServerUrl.TrimEnd('/'))/api/images/$($item.Hash)"
-                                $wc.DownloadFile($imgEndpoint, $item.Dest)
-                                $dlCount++
+                                if ($item.Url -and $item.Url -match "^https?://.*s3") {
+                                    $wc.DownloadFile($item.Url, $item.Dest)
+                                    $dlCount++
+                                } elseif ($ServerUrl) {
+                                    $imgEndpoint = "$($ServerUrl.TrimEnd('/'))/api/images/$($item.Name)"
+                                    $wc.DownloadFile($imgEndpoint, $item.Dest)
+                                    $dlCount++
+                                }
                             } catch {}
                         }
                         $wc.Dispose()
@@ -903,9 +908,9 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                         }
 
                         $assignedUrl = $giNode.imageUrl
-                        if ($giNode.imageUrl -match "([a-f0-9]{64}\.jpg)") {
-                            $hash = $matches[1]
-                            $localFile = Join-Path $localImagesDir $hash
+                        $fname = [System.IO.Path]::GetFileName($giNode.imageUrl)
+                        if ($fname) {
+                            $localFile = Join-Path $localImagesDir $fname
                             if (Test-Path $localFile) {
                                 $assignedUrl = "file://" + ($localFile -replace '\\', '/')
                             }
@@ -914,6 +919,43 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                         if ($assignedUrl) { $gi.ImageUrl = $assignedUrl }
                         $gi.Update()
                         $imgObjects[$giNode.id] = $gi
+                    }
+                }
+
+                # 0b. Index and instantiate SeriesInfos from MXF
+                $seriesObjects = @{}
+                if ($xml.MXF.With.SeriesInfos -and $xml.MXF.With.SeriesInfos.SeriesInfo) {
+                    $sisColl = New-Object Microsoft.MediaCenter.Guide.SeriesInfos($store)
+                    $siType = $sisColl.ObjectType
+
+                    foreach ($siNode in $xml.MXF.With.SeriesInfos.SeriesInfo) {
+                        $siUid = if ($siNode.uid) { $siNode.uid } else { "!Series!" + $siNode.id }
+                        $existingSi = $uids[$siUid]
+                        $si = $null
+                        if ($existingSi -and $existingSi.Target) {
+                            $si = $existingSi.Target
+                        } else {
+                            $si = $siType.New()
+                            $sisColl.Add($si)
+                            try { $uids.Add($siUid, $si) } catch {}
+                        }
+
+                        $si.Title = $siNode.title
+                        if ($siNode.description) { $si.Description = $siNode.description }
+                        if ($siNode.shortTitle) { $si.ShortTitle = $siNode.shortTitle }
+                        if ($siNode.shortDescription) { $si.ShortDescription = $siNode.shortDescription }
+                        if ($siNode.studio) { $si.Studio = $siNode.studio }
+                        if ($siNode.startAirdate) {
+                            try { $si.StartAirdate = [DateTime]::Parse($siNode.startAirdate) } catch {}
+                        }
+                        if ($siNode.endAirdate) {
+                            try { $si.EndAirdate = [DateTime]::Parse($siNode.endAirdate) } catch {}
+                        }
+                        if ($siNode.guideImage -and $imgObjects.ContainsKey($siNode.guideImage)) {
+                            $si.GuideImage = $imgObjects[$siNode.guideImage]
+                        }
+                        $si.Update()
+                        $seriesObjects[$siNode.id] = $si
                     }
                 }
 
@@ -947,8 +989,13 @@ if (-not $hasMediaOp -or $SyncNow -or $All) {
                         $en = 0
                         if ([int]::TryParse($pNode.episodeNumber, [ref]$en)) { $p.EpisodeNumber = $en }
                     }
+                    if ($pNode.series -and $seriesObjects.ContainsKey($pNode.series)) {
+                        $p.Series = $seriesObjects[$pNode.series]
+                    }
                     if ($pNode.guideImage -and $imgObjects.ContainsKey($pNode.guideImage)) {
                         $p.GuideImage = $imgObjects[$pNode.guideImage]
+                    } elseif ($p.Series -and $p.Series.GuideImage) {
+                        $p.GuideImage = $p.Series.GuideImage
                     }
 
                     $p.Update()

@@ -157,6 +157,14 @@ class MXFGenerator:
                 img_idx += 1
                 etree.SubElement(images_elem, "GuideImage", id=img_id, imageUrl=pr.image_url)
 
+        # Collect series posters
+        for s_info in self.db.series.values():
+            if getattr(s_info, "image_url", None) and s_info.image_url not in self._image_map:
+                img_id = f"gi_{img_idx}"
+                self._image_map[s_info.image_url] = img_id
+                img_idx += 1
+                etree.SubElement(images_elem, "GuideImage", id=img_id, imageUrl=s_info.image_url)
+
     def _build_series_infos(self, parent: etree._Element):
         series_elem = etree.SubElement(parent, "SeriesInfos")
         for s_id, s_info in self.db.series.items():
@@ -171,6 +179,8 @@ class MXFGenerator:
                 attribs["description"] = s_info.description
             if s_info.start_air_date:
                 attribs["startAirdate"] = s_info.start_air_date
+            if getattr(s_info, "image_url", None) and s_info.image_url in self._image_map:
+                attribs["guideImage"] = self._image_map[s_info.image_url]
             etree.SubElement(series_elem, "SeriesInfo", **attribs)
 
     def _build_programs(self, parent: etree._Element):
