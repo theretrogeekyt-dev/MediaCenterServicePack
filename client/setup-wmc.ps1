@@ -56,19 +56,26 @@ function Find-ServerEndpoint {
 $activeServer = Find-ServerEndpoint -Preferred $ServerUrl
 Write-Host "[1/3] Connected to server: $activeServer" -ForegroundColor Green
 
-# 3. Download & Install Synchronization Engine
+# 3. Install Synchronization Engine
 $installDir = "$env:ProgramData\MediaCenterServicePack"
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
 
 $syncScript = Join-Path $installDir "sync-wmc.ps1"
-Write-Host "[2/3] Downloading synchronization engine..." -ForegroundColor Cyan
-try {
-    $wc.DownloadFile("$activeServer/api/client/sync-wmc.ps1", $syncScript)
-} catch {
-    Write-Host "[ERROR] Could not download sync-wmc.ps1 from $activeServer : $_" -ForegroundColor Red
-    exit 1
+$localSiblingSync = if ($PSScriptRoot) { Join-Path $PSScriptRoot "sync-wmc.ps1" } else { $null }
+
+if ($localSiblingSync -and (Test-Path $localSiblingSync)) {
+    Write-Host "[2/3] Installing local synchronization engine..." -ForegroundColor Cyan
+    Copy-Item -Path $localSiblingSync -Destination $syncScript -Force
+} else {
+    Write-Host "[2/3] Downloading synchronization engine..." -ForegroundColor Cyan
+    try {
+        $wc.DownloadFile("$activeServer/api/client/sync-wmc.ps1", $syncScript)
+    } catch {
+        Write-Host "[ERROR] Could not download sync-wmc.ps1 from $activeServer : $_" -ForegroundColor Red
+        exit 1
+    }
 }
 $wc.Dispose()
 
