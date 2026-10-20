@@ -317,7 +317,7 @@ async def get_setup_hta(request: Request):
 async def download_artwork_bundle():
     """
     Fast pre-packaged artwork archive bundle.
-    Contains all 1,384 guide posters, TV series artwork, movie covers, and channel logos.
+    Contains all guide posters, TV series artwork, movie covers, and channel logos.
     Allows a new Media Center PC to extract all artwork in 1-2 seconds.
     """
     bundle_path = settings.config_path / "images_bundle.zip"
@@ -325,23 +325,30 @@ async def download_artwork_bundle():
     images_dir = settings.config_path / "Images"
     alt_images = Path("C:/ProgramData/MediaCenterServicePack/Images")
 
-    target_dir = images_dir if (images_dir.exists() and len(list(images_dir.iterdir())) > 100) else alt_images
+    img_count = len(list(images_dir.iterdir())) if images_dir.exists() else 0
+    alt_count = len(list(alt_images.iterdir())) if alt_images.exists() else 0
+
+    target_dir = alt_images if alt_count > img_count else (images_dir if img_count > 0 else None)
 
     # Check if bundle already exists on disk
-    if not (bundle_path.exists() and bundle_path.stat().st_size > 1024 * 1024):
-        if alt_bundle.exists() and alt_bundle.stat().st_size > 1024 * 1024:
-            bundle_path = alt_bundle
-        elif target_dir.exists():
-            import zipfile
-            save_path = bundle_path if bundle_path.parent.exists() else alt_bundle
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(save_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
-                for f in target_dir.iterdir():
-                    if f.is_file():
-                        zf.write(f, arcname=f.name)
-            bundle_path = save_path
+    has_bundle = bundle_path.exists() and bundle_path.stat().st_size > 0
+    has_alt_bundle = alt_bundle.exists() and alt_bundle.stat().st_size > 0
 
-    if bundle_path.exists():
+    if not has_bundle and has_alt_bundle:
+        bundle_path = alt_bundle
+        has_bundle = True
+    elif not has_bundle and not has_alt_bundle and target_dir:
+        import zipfile
+        save_path = bundle_path if bundle_path.parent.exists() else (alt_bundle if alt_bundle.parent.exists() else bundle_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(save_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+            for f in target_dir.iterdir():
+                if f.is_file():
+                    zf.write(f, arcname=f.name)
+        bundle_path = save_path
+        has_bundle = bundle_path.exists() and bundle_path.stat().st_size > 0
+
+    if has_bundle:
         return FileResponse(
             path=str(bundle_path),
             media_type="application/zip",
