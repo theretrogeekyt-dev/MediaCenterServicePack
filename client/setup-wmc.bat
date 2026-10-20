@@ -4,7 +4,7 @@ title MediaCenterServicePack - 1-Go WMC Setup
 
 echo ======================================================================
 echo    MediaCenterServicePack - 1-Go Windows Media Center Setup
-echo    Zero External Software - Native Windows Batch & PowerShell Setup
+echo    Zero External Software - Automated Native Windows Setup
 echo ======================================================================
 echo.
 

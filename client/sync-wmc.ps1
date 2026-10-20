@@ -103,7 +103,11 @@ if ($InstallTask -or $Setup) {
     # Silent VBS launcher (runs PowerShell in background without flashing a black console window)
     $vbsPath = Join-Path $WorkingDirectory "run-hidden.vbs"
     $vbsCode = "Set WshShell = CreateObject(""WScript.Shell"")`r`nWshShell.Run ""powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """"$installedScript"""" -Quiet"", 0, False`r`n"
-    [System.IO.File]::WriteAllText($vbsPath, $vbsCode, [System.Text.Encoding]::ASCII)
+    try {
+        if (-not (Test-Path $vbsPath) -or [System.IO.File]::ReadAllText($vbsPath) -ne $vbsCode) {
+            [System.IO.File]::WriteAllText($vbsPath, $vbsCode, [System.Text.Encoding]::ASCII)
+        }
+    } catch {}
 
     # Register Daily 4:00 AM sync task and Logon sync task (standard Windows schtasks.exe)
     Start-Process -FilePath "schtasks.exe" -ArgumentList "/create /tn `"MediaCenterServicePack_AutoSync`" /tr `"wscript.exe `\`"$vbsPath`\`"`" /sc daily /st 04:00 /rl HIGHEST /f" -Wait -NoNewWindow
@@ -135,12 +139,17 @@ if ($InstallTask -or $Setup) {
                 title="Service Pack Status &amp; Sync"
                 description="Update TV Guide, TV series artwork, and movie metadata"
                 run="wscript.exe"
-                args="`"$vbsPath`""
+                args="$vbsPath"
                 category="More Programs">
     </entrypoint>
 </application>
 "@
-            [System.IO.File]::WriteAllText($appXmlPath, $appXml)
+            try {
+                if (-not (Test-Path $appXmlPath) -or [System.IO.File]::ReadAllText($appXmlPath) -ne $appXml) {
+                    [System.IO.File]::WriteAllText($appXmlPath, $appXml)
+                }
+            } catch {}
+            Start-Process -FilePath $regMceApp -ArgumentList @("/u", "/allusers", $appXmlPath) -Wait -NoNewWindow -ErrorAction SilentlyContinue
             Start-Process -FilePath $regMceApp -ArgumentList @("/allusers", $appXmlPath) -Wait -NoNewWindow -ErrorAction SilentlyContinue
             Log-Message "Registered native WMC Start Menu entrypoint tile." "SUCCESS"
         }
