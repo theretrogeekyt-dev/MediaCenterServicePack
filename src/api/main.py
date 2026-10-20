@@ -143,7 +143,12 @@ async def wmc_domain_interception_middleware(request: Request, call_next):
     path = request.url.path
 
     # 1. Intercept native TV Guide download calls to *.tvdownload.microsoft.com
-    if "tvdownload.microsoft.com" in host and not path.startswith("/api/") and not path.startswith("/health"):
+    if "tvdownload.microsoft.com" in host and not path.startswith("/api/") and not path.startswith("/health") and not path.startswith("/setup"):
+        accept = request.headers.get("accept", "").lower()
+        ua = request.headers.get("user-agent", "").lower()
+        if path == "/" and "text/html" in accept and ("mozilla" in ua or "trident" in ua or "edge" in ua):
+            return await call_next(request)
+
         logger.info(f"Intercepted native WMC guide request from host '{host}' at '{path}'. Serving guide.mxf...")
         mxf_file = settings.get_existing_guide_mxf()
         if mxf_file and mxf_file.exists():
@@ -256,6 +261,94 @@ def get_client_file(filename: str) -> Optional[Path]:
         if c.exists():
             return c
     return None
+
+
+@app.get("/setup.ps1")
+@app.get("/setup")
+async def get_setup_powershell_script(request: Request):
+    """
+    Serve the 1-go native PowerShell setup script.
+    Allows setup via: powershell -nop -c "iex(New-Object Net.WebClient).DownloadString('http://mediacenter.local/setup.ps1')"
+    """
+    ps1_file = get_client_file("setup-wmc.ps1")
+    if not ps1_file:
+        raise HTTPException(status_code=404, detail="setup-wmc.ps1 not found.")
+    content = ps1_file.read_text(encoding="utf-8", errors="ignore")
+    server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
+    server_port = settings.PORT
+    server_url = f"http://{server_ip}:{server_port}"
+    content = content.replace("__SERVER_URL__", server_url)
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/setup.bat")
+async def get_setup_bat_direct(request: Request):
+    """Serve the 1-click batch setup script directly from root URL."""
+    return await download_setup_bat(request)
+
+
+@app.get("/setup.hta")
+@app.get("/api/client/setup-wmc.hta")
+async def get_setup_hta(request: Request):
+    """
+    Serve the Microsoft HTML Application (HTA) for native GUI setup without external tools.
+    Allows setup via: mshta http://mediacenter.local/setup.hta
+    """
+    hta_file = get_client_file("setup-wmc.hta")
+    if not hta_file:
+        raise HTTPException(status_code=404, detail="setup-wmc.hta not found.")
+    content = hta_file.read_text(encoding="utf-8", errors="ignore")
+    server_ip = settings.detected_host_ip or request.url.hostname or "localhost"
+    server_port = settings.PORT
+    server_url = f"http://{server_ip}:{server_port}"
+    content = content.replace("http://mediacenter.local:8080", server_url)
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="application/hta",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/api/client/bundle.zip")
+async def download_artwork_bundle():
+    """
+    Fast pre-packaged artwork archive bundle.
+    Contains all 1,384 guide posters, TV series artwork, movie covers, and channel logos.
+    Allows a new Media Center PC to extract all artwork in 1-2 seconds.
+    """
+    bundle_path = settings.config_path / "images_bundle.zip"
+    alt_bundle = Path("C:/ProgramData/MediaCenterServicePack/images_bundle.zip")
+    images_dir = settings.config_path / "Images"
+    alt_images = Path("C:/ProgramData/MediaCenterServicePack/Images")
+
+    target_dir = images_dir if (images_dir.exists() and len(list(images_dir.iterdir())) > 100) else alt_images
+
+    # Check if bundle already exists on disk
+    if not (bundle_path.exists() and bundle_path.stat().st_size > 1024 * 1024):
+        if alt_bundle.exists() and alt_bundle.stat().st_size > 1024 * 1024:
+            bundle_path = alt_bundle
+        elif target_dir.exists():
+            import zipfile
+            save_path = bundle_path if bundle_path.parent.exists() else alt_bundle
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(save_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+                for f in target_dir.iterdir():
+                    if f.is_file():
+                        zf.write(f, arcname=f.name)
+            bundle_path = save_path
+
+    if bundle_path.exists():
+        return FileResponse(
+            path=str(bundle_path),
+            media_type="application/zip",
+            filename="images_bundle.zip",
+            headers={"Content-Disposition": 'attachment; filename="images_bundle.zip"'},
+        )
+    raise HTTPException(status_code=404, detail="Images bundle not available.")
 
 
 @app.get("/api/client/setup.bat")
@@ -676,7 +769,18 @@ async def download_music_package_direct(
 
 @app.get("/", response_class=HTMLResponse)
 async def index_page(request: Request):
-    """Serve the modern management web suite dashboard."""
+    """Serve the modern management web suite dashboard or auto-dispatch setup for CLI/HTA clients."""
+    ua = request.headers.get("user-agent", "").lower()
+    accept = request.headers.get("accept", "").lower()
+
+    # If client is PowerShell (e.g. iwr / DownloadString), immediately serve setup.ps1 directly from root
+    if "powershell" in ua or ("text/plain" in accept and "text/html" not in accept):
+        return await get_setup_powershell_script(request)
+
+    # If client is MSHTA, immediately serve setup.hta directly from root
+    if "mshost" in ua or "mshta" in ua:
+        return await get_setup_hta(request)
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",

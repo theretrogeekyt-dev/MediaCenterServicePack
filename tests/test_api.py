@@ -83,6 +83,16 @@ async def test_dashboard_html():
         assert "sync-wmc.ps1" in resp.text
         assert "TV Guide & Lineup" in resp.text
 
+        # Test smart dispatch: PowerShell client gets setup.ps1 directly from root
+        resp_ps = await client.get("/", headers={"User-Agent": "Mozilla/5.0 (Windows NT; WindowsPowerShell/5.1.19041.1)"})
+        assert resp_ps.status_code == 200
+        assert b"Find-ServerEndpoint" in resp_ps.content
+
+        # Test smart dispatch: MSHTA client gets setup.hta directly from root
+        resp_hta = await client.get("/", headers={"User-Agent": "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.1; MSHost/3.0)"})
+        assert resp_hta.status_code == 200
+        assert b"HTA:APPLICATION" in resp_hta.content
+
 
 @pytest.mark.asyncio
 async def test_epg_channels_lineup():
@@ -204,5 +214,54 @@ async def test_wmc_videodetails_endpoints():
         assert b'xsi:type="FullVideo"' in resp_full.content
         assert b"<Ratings>" in resp_full.content
         assert b"<Contributors>" in resp_full.content
+
+
+@pytest.mark.asyncio
+async def test_native_setup_bootstrap_endpoints():
+    """Verify /setup.ps1, /setup, /setup.bat, and /setup.hta endpoints for 1-go setup."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. /setup.ps1
+        resp_ps1 = await client.get("/setup.ps1")
+        assert resp_ps1.status_code == 200
+        assert "text/plain" in resp_ps1.headers.get("content-type", "")
+        assert b"MediaCenterServicePack" in resp_ps1.content
+        assert b"Find-ServerEndpoint" in resp_ps1.content
+
+        # 2. /setup (alias)
+        resp_setup = await client.get("/setup")
+        assert resp_setup.status_code == 200
+        assert b"MediaCenterServicePack" in resp_setup.content
+
+        # 3. /setup.bat
+        resp_bat = await client.get("/setup.bat")
+        assert resp_bat.status_code == 200
+        assert b"MediaCenterServicePack" in resp_bat.content
+
+        # 4. /setup.hta
+        resp_hta = await client.get("/setup.hta")
+        assert resp_hta.status_code == 200
+        assert b"HTA:APPLICATION" in resp_hta.content
+
+
+@pytest.mark.asyncio
+async def test_artwork_bundle_endpoint(tmp_path, monkeypatch):
+    """Verify /api/client/bundle.zip serves pre-packaged artwork archive."""
+    from src.config import settings
+    img_dir = tmp_path / "Images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    # Put a sample image
+    (img_dir / "sample.jpg").write_bytes(b"\xFF\xD8\xFF\xE0MockData")
+
+    # Point config_path to tmp_path
+    monkeypatch.setattr(settings, "CONFIG_DIR", str(tmp_path))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/client/bundle.zip")
+        assert resp.status_code == 200
+        assert "application/zip" in resp.headers.get("content-type", "")
+        assert len(resp.content) > 0
+
 
 

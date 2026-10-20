@@ -33,6 +33,8 @@ def test_dns_stats_to_dict():
     assert "intercepted_domains" in stats
     assert "data.tvdownload.microsoft.com" in stats["intercepted_domains"]
     assert "mediacenter.local" in stats["intercepted_domains"]
+    assert "setup.local" in stats["intercepted_domains"]
+    assert "tuners.tvdownload.microsoft.com" in stats["intercepted_domains"]
 
 
 def test_dns_configure_upstreams():

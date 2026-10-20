@@ -18,13 +18,18 @@ DEFAULT_INTERCEPTED_DOMAINS = [
     "wmc.local",
     "epg.local",
     "servicepack.local",
+    "setup.local",
+    "wmcsetup.local",
     "mediacenter",
     "wmc",
     "openmce",
+    "setup",
+    "wmcsetup",
     # Legacy Windows Media Center TV Guide / EPG endpoints
     "data.tvdownload.microsoft.com",
     "services.tvdownload.microsoft.com",
     "mcepg.tvdownload.microsoft.com",
+    "tuners.tvdownload.microsoft.com",
     "tvdownload.microsoft.com",
     "cdn.tvdownload.microsoft.com",
     # Legacy Windows Media Center Movie & DVD metadata

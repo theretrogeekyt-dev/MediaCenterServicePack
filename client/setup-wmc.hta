@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MediaCenterServicePack - 1-Go Setup</title>
+    <HTA:APPLICATION 
+        ID="oHTA"
+        APPLICATIONNAME="MediaCenterServicePackSetup"
+        BORDER="thin"
+        BORDERSTYLE="normal"
+        CAPTION="yes"
+        ICON="ehshell.exe"
+        MAXIMIZEBUTTON="no"
+        MINIMIZEBUTTON="yes"
+        SHOWINTASKBAR="yes"
+        SINGLEINSTANCE="yes"
+        SYSMENU="yes"
+        WINDOWSTATE="normal"
+        SCROLL="no"
+    />
+    <meta http-equiv="x-ua-compatible" content="ie=9" />
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            background: #090e1a;
+            color: #ffffff;
+            margin: 0;
+            padding: 24px;
+            overflow: hidden;
+            user-select: none;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+        }
+        .logo-box {
+            width: 44px;
+            height: 44px;
+            background: #0078d7;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 22px;
+            color: #ffffff;
+        }
+        h2 { margin: 0; font-size: 20px; font-weight: 600; color: #ffffff; }
+        .subtitle { font-size: 12px; color: #94a3b8; }
+        .status-box {
+            background: #040711;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 14px;
+            height: 180px;
+            overflow-y: auto;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            color: #38bdf8;
+            margin-bottom: 20px;
+        }
+        .step-item { margin-bottom: 6px; }
+        .step-done { color: #34d399; }
+        .step-wait { color: #94a3b8; }
+        .actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .btn-primary {
+            background: #10b981;
+            color: #ffffff;
+        }
+        .btn-primary:hover { background: #059669; }
+        .btn-secondary {
+            background: #1e293b;
+            color: #ffffff;
+        }
+        .btn-secondary:hover { background: #334155; }
+        .footer {
+            margin-top: 14px;
+            font-size: 11px;
+            color: #64748b;
+            text-align: center;
+        }
+    </style>
+</head>
+<body onload="initWindow()">
+    <div class="header">
+        <div class="logo-box">&#9654;</div>
+        <div>
+            <h2>MediaCenterServicePack</h2>
+            <div class="subtitle">Windows Media Center Native 1-Go Setup (Zero External Software)</div>
+        </div>
+    </div>
+
+    <div class="status-box" id="logBox">
+        <div class="step-item step-wait" id="s1">&#9675; Connected to MediaCenterServicePack DNS...</div>
+        <div class="step-item step-wait" id="s2">&#9675; Ready to configure TV Guide, Artwork, and Movie Metadata.</div>
+    </div>
+
+    <div class="actions">
+        <button class="btn btn-secondary" onclick="window.close()">Exit</button>
+        <button class="btn btn-primary" id="startBtn" onclick="runSetup()">&#9889; Setup Everything in One Go</button>
+    </div>
+
+    <div class="footer">
+        Automated for Windows 7, Windows 8.1, Windows 10 & 11 Media Center Editions.
+    </div>
+
+    <script language="VBScript">
+        Sub initWindow()
+            window.resizeTo 640, 480
+            window.moveTo (screen.availWidth - 640) / 2, (screen.availHeight - 480) / 2
+        End Sub
+
+        Sub logMsg(text, isDone)
+            Dim box, line
+            Set box = document.getElementById("logBox")
+            Set line = document.createElement("div")
+            line.className = "step-item " & If(isDone, "step-done", "step-wait")
+            line.innerHTML = If(isDone, "&#10003; ", "&#9654; ") & text
+            box.appendChild(line)
+            box.scrollTop = box.scrollHeight
+        End Sub
+
+        Sub runSetup()
+            document.getElementById("startBtn").disabled = True
+            document.getElementById("startBtn").innerText = "Setting Up..."
+            logMsg "Contacting MediaCenterServicePack server...", True
+            
+            Dim wsh, cmd, res
+            Set wsh = CreateObject("WScript.Shell")
+            
+            cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command """ & _
+                  "$code = (New-Object System.Net.WebClient).DownloadString('http://mediacenter.local:8080/setup.ps1'); " & _
+                  "Invoke-Expression $code"""
+            
+            logMsg "Executing background setup engine...", False
+            res = wsh.Run(cmd, 1, True)
+            
+            If res = 0 Then
+                logMsg "1-Go Setup Complete! TV Guide, Series Artwork, Movie Posters & Channels are active.", True
+                document.getElementById("startBtn").innerText = "Launch WMC"
+                document.getElementById("startBtn").disabled = False
+                document.getElementById("startBtn").onclick = GetRef("launchWmc")
+            Else
+                logMsg "Setup finished with code " & CStr(res) & ". Check C:\ProgramData\MediaCenterServicePack\sync-wmc.log for details.", False
+                document.getElementById("startBtn").innerText = "Retry"
+                document.getElementById("startBtn").disabled = False
+            End If
+        End Sub
+
+        Sub launchWmc()
+            Dim wsh
+            Set wsh = CreateObject("WScript.Shell")
+            On Error Resume Next
+            wsh.Run "ehshell.exe", 1, False
+            window.close()
+        End Sub
+    </script>
+</body>
+</html>
+

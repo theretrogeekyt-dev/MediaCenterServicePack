@@ -998,42 +998,82 @@
         <!-- TAB 4: 💻 WMC Client Setup                                        -->
         <!-- ================================================================= -->
         <div id="tab-client" class="tab-pane">
-            <!-- ⚡ 1-Click Zero-Terminal Setup -->
-            <div class="card" style="border-color: #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(18, 26, 44, 0.95) 100%); margin-bottom: 24px;">
+            <!-- ⚡ 1-Go Setup for New Media Center PC (Custom DNS / Zero External Software) -->
+            <div class="card" style="border-color: #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(18, 26, 44, 0.95) 100%); margin-bottom: 24px;">
                 <div class="card-header-row">
                     <div>
                         <div class="card-title" style="display: flex; align-items: center; gap: 8px;">
-                            <span>⚡ 1-Click Windows Setup (No Terminal Required)</span>
-                            <span class="badge badge-success">Zero Terminal</span>
+                            <span>⚡ New Media Center PC: 1-Go Setup</span>
+                            <span class="badge badge-success">Zero External Software</span>
                         </div>
-                        <div class="card-subtitle">Automate TV Guide, Music Artwork, and Movie Metadata with zero command line commands</div>
+                        <div class="card-subtitle">Set your DNS to this server, then configure TV Guide, Artwork, Posters, and Tasks in a single step</div>
                     </div>
-                    <a href="/api/client/setup.bat" class="btn" style="background: #10b981; color: #ffffff; text-decoration: none; display: flex; align-items: center; gap: 6px; font-weight: 600;">
-                        <span>⬇ Download 1-Click Setup (.bat)</span>
-                    </a>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <a href="/setup.bat" class="btn" style="background: #10b981; color: #ffffff; text-decoration: none; display: flex; align-items: center; gap: 6px; font-weight: 600;">
+                            <span>⬇ Download 1-Click Setup (.bat)</span>
+                        </a>
+                        <a href="/setup.hta" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; font-weight: 600;">
+                            <span>Launch Native GUI (.hta)</span>
+                        </a>
+                    </div>
                 </div>
 
-                <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 16px;">
-                    Never open a terminal, command prompt, or PowerShell script again. Download and run this pre-configured batch installer on your Windows Media Center PC:
+                <p style="font-size: 0.92rem; color: #cbd5e1; margin-bottom: 16px;">
+                    On any new or clean Windows Media Center PC with DNS pointing to <strong>{{ dns_server_ip }}</strong>, you don't need any USB drive, Git, Python, or third-party tools. Simply run one of these native commands:
                 </p>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 16px;">
-                    <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
-                        <strong style="color: #ffffff; font-size: 0.9rem;">1. Download & Double-Click</strong>
-                        <p style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">
-                            Click the button above to download <code>setup-wmc.bat</code>, then right-click and choose <strong>Run as administrator</strong>.
+                <!-- Method A: Native PowerShell / Run Prompt One-Liner -->
+                <div style="background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 0.85rem; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Method 1: Win + R / PowerShell One-Liner (Fastest)
+                        </span>
+                        <span style="font-size: 0.78rem; color: var(--text-dim);">No download needed &bull; Auto-elevates</span>
+                    </div>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">
+                        Press <strong>Windows Key + R</strong> (or open PowerShell) and paste this single command:
+                    </p>
+                    <div class="code-box" style="margin: 0; background: #030712;">
+                        <span class="code-text" id="snippet-oneliner">powershell -nop -c "iex(New-Object Net.WebClient).DownloadString('http://mediacenter.local:{{ port }}/setup.ps1')"</span>
+                        <button class="btn btn-sm btn-secondary" onclick="copySnippet('snippet-oneliner')">Copy</button>
+                    </div>
+                </div>
+
+                <!-- Method B: Native Windows HTML Application (mshta.exe) -->
+                <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.05em;">
+                            Method 2: Native Windows GUI Wizard (mshta.exe)
+                        </span>
+                        <span style="font-size: 0.78rem; color: var(--text-dim);">Built into Windows XP through Windows 11</span>
+                    </div>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">
+                        Press <strong>Windows Key + R</strong> and run the built-in Microsoft Application Host:
+                    </p>
+                    <div class="code-box" style="margin: 0; background: #030712;">
+                        <span class="code-text" id="snippet-mshta">mshta http://mediacenter.local:{{ port }}/setup.hta</span>
+                        <button class="btn btn-sm btn-secondary" onclick="copySnippet('snippet-mshta')">Copy</button>
+                    </div>
+                </div>
+
+                <!-- What this 1-go setup does automatically -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+                    <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
+                        <strong style="color: #34d399; font-size: 0.88rem;">✓ Complete Artwork Bundle</strong>
+                        <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">
+                            Pre-caches all TV series posters, episode cards, movie artwork, and station logos in ~2 seconds.
                         </p>
                     </div>
-                    <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
-                        <strong style="color: #ffffff; font-size: 0.9rem;">2. Automated Background Tasks</strong>
-                        <p style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">
-                            Silently registers daily scheduled tasks at 4:00 AM and at Windows logon. TV Guide, Music covers, and Movie details update automatically.
+                    <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
+                        <strong style="color: #34d399; font-size: 0.88rem;">✓ Guide & Channel Ingestion</strong>
+                        <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">
+                            Ingests full TV Guide MXF, auto-maps broadcast tuner channels, and hides empty dead channels.
                         </p>
                     </div>
-                    <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
-                        <strong style="color: #ffffff; font-size: 0.9rem;">3. Silent Desktop Shortcut</strong>
-                        <p style="font-size: 0.82rem; color: var(--text-dim); margin-top: 4px;">
-                            Creates a <strong>"Sync Windows Media Center"</strong> desktop shortcut. Double-click it anytime for a 1-click update without opening any terminal window!
+                    <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
+                        <strong style="color: #34d399; font-size: 0.88rem;">✓ Automated 4:00 AM Tasks</strong>
+                        <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">
+                            Registers silent daily background scheduled tasks and places a 1-click sync shortcut on your desktop.
                         </p>
                     </div>
                 </div>
